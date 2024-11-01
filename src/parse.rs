@@ -32,7 +32,7 @@ pub struct Args {
 const ALLOWED_CHARS: [u8; 5] = [b'A', b'G', b'C', b'T', b'N'];
 
 pub fn parse_fasta(path: PathBuf) -> Result<Records> {
-    if !path.ends_with("fa") && !path.ends_with("fasta") {
+    if !(has_extension(&path, "fa") || has_extension(&path, "fasta")) {
         return Err(AStarError::FastaError(io::Error::from(
             io::ErrorKind::InvalidInput,
         )));
@@ -50,6 +50,7 @@ pub fn parse_fasta(path: PathBuf) -> Result<Records> {
                 name: vec![c],
             };
             in_name = true;
+            continue;
         }
         if in_name {
             if c == b'\n' {
@@ -59,12 +60,13 @@ pub fn parse_fasta(path: PathBuf) -> Result<Records> {
             current_rec.name.push(c);
         } else if c == b'\n' {
             continue;
-        } else if ALLOWED_CHARS.contains(&c) {
+        } else if !ALLOWED_CHARS.contains(&c) {
             err_chars.push(char::from_u32(c as u32).unwrap_or('?'));
         } else {
             current_rec.seq.push(c);
         }
     }
+    recs.records.push(current_rec);
     recs.records.remove(0);
     if !err_chars.is_empty() {
         return Err(AStarError::CharError {
@@ -75,7 +77,13 @@ pub fn parse_fasta(path: PathBuf) -> Result<Records> {
     Ok(recs)
 }
 
-#[derive(Default)]
+fn has_extension(path: &PathBuf, ext: &str) -> bool {
+    match path.extension() {
+        Some(extension) => extension == ext,
+        None => false,
+    }
+}
+#[derive(Default, Debug)]
 pub struct Records {
     pub records: Vec<Record>,
 }
@@ -103,7 +111,7 @@ impl Records {
     }
 }
 
-#[derive(Default, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Default, PartialEq, PartialOrd, Ord, Eq, Debug)]
 pub struct Record {
     seq: Vec<u8>,
     name: Vec<u8>,
@@ -137,13 +145,22 @@ mod tests {
     #[test]
     fn parse_good_fasta() -> io::Result<()> {
         let mut t_file = NamedTempFile::new()?;
+        let original_p = t_file.path().to_path_buf();
+        let new_p = original_p.with_extension("fa");
+        fs::rename(original_p, &new_p)?;
         write!(
             t_file,
             ">Record1\nATGCATGCATGCATGCATGCATGCATGC\n>Record2\nATGCATGCGTGCAGTGACCACA"
         )?;
         t_file.flush()?;
-        let p = t_file.path().to_path_buf();
-        assert!(parse_fasta(p).is_ok());
+        match parse_fasta(new_p) {
+            Ok(res) => {
+                assert_eq!(res.records.len(), 2);
+                assert_eq!(res.records[0].name.len(), 8, "{:#?}", res.records[0].name);
+                assert_eq!(res.records[0].seq.len(), 28);
+            }
+            Err(e) => panic!("should return Ok not {:#?}", e),
+        }
         Ok(())
     }
 
@@ -155,8 +172,10 @@ mod tests {
             ">Record1\nATGCATGCATGCATGCATGCATGCATGC\nRecord2\nATGCATGCGTGCAGTGACCACA"
         )?;
         t_file.flush()?;
-        let p = t_file.path().to_path_buf();
-        match parse_fasta(p) {
+        let original_p = t_file.path().to_path_buf();
+        let new_p = original_p.with_extension("fa");
+        fs::rename(original_p, &new_p)?;
+        match parse_fasta(new_p) {
             Err(AStarError::CharError { res, chars }) => {
                 assert_eq!(chars, vec!['R', 'e', 'c', 'o', 'r', 'd', '2']);
                 if let Some(rec) = res.records.first() {
@@ -166,10 +185,10 @@ mod tests {
                         b"ATGCATGCATGCATGCATGCATGCATGCATGCATGCGTGCAGTGACCACA"
                     )
                 } else {
-                    panic!("records was empty, but should conatin 1 element");
+                    panic!("records was empty, but should contain 1 element");
                 }
             }
-            _ => panic!("expected char error"),
+            e => panic!("expected char error, got {:#?}", e),
         }
         Ok(())
     }
@@ -179,8 +198,10 @@ mod tests {
         let mut t_file = NamedTempFile::new()?;
         write!(t_file, ">Record1\nATGCATGCAKGCATGCATGCANNNGCATGC")?;
         t_file.flush()?;
-        let p = t_file.path().to_path_buf();
-        match parse_fasta(p) {
+        let original_p = t_file.path().to_path_buf();
+        let new_p = original_p.with_extension("fa");
+        fs::rename(original_p, &new_p)?;
+        match parse_fasta(new_p) {
             Err(AStarError::CharError { res, chars }) => {
                 assert_eq!(chars, vec!['K']);
                 if let Some(rec) = res.records.first() {
@@ -190,7 +211,7 @@ mod tests {
                     panic!("records was empty, but should conatin 1 element");
                 }
             }
-            _ => panic!("expected char error"),
+            e => panic!("expected char error, got: {:#?}", e),
         }
         Ok(())
     }
