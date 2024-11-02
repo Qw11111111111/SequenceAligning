@@ -113,8 +113,8 @@ impl Records {
 
 #[derive(Default, PartialEq, PartialOrd, Ord, Eq, Debug)]
 pub struct Record {
-    seq: Vec<u8>,
-    name: Vec<u8>,
+    pub seq: Vec<u8>,
+    pub name: Vec<u8>,
 }
 
 impl Display for Record {
