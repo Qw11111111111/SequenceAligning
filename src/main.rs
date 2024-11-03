@@ -1,6 +1,8 @@
+#[allow(dead_code, unused_imports)]
 mod align;
 pub mod errors;
 mod parse;
+pub mod utils;
 mod wfa;
 
 use align::align;
@@ -8,6 +10,7 @@ use clap::Parser;
 use errors::{AStarError, Result};
 use parse::{parse_fasta, Args, Records};
 
+//TODO handle errors appropriatly
 fn main() {
     let args = Args::parse();
 
@@ -50,11 +53,19 @@ fn main() {
             return;
         }
     };
-    for (q, d) in query.records.iter().zip(db.records.iter()) {
-        match align(q, d) {
-            Err(AStarError::AlignmentError(_)) => {}
-            Ok(_) => {}
-            _ => {}
+    for d in db.records.iter() {
+        for q in query.records.iter() {
+            match align(q, d, args.verbose) {
+                Err(AStarError::AlignmentError(e)) => {
+                    eprintln!(
+                        "An error occured during alignment of {} and {}\n{e}",
+                        q.name.iter().map(|i| *i as char).collect::<String>(),
+                        d.name.iter().map(|i| *i as char).collect::<String>()
+                    )
+                }
+                Ok(_) => {}
+                _ => {}
+            }
         }
     }
 }

@@ -10,7 +10,7 @@ const SCHEME: ScoringScheme = ScoringScheme {
     gap_opening: 2,
     gap_extension: 4,
 };
-pub fn align(seq1: &Record, seq2: &Record) -> Result<()> {
+pub fn align<'a>(seq1: &Record, seq2: &Record) -> Result<'a, ()> {
     let graph = match Graph::from_seq(&seq1.seq, &seq2.seq) {
         Err(AStarError::AlignmentError(_)) => {
             eprintln!(
@@ -64,7 +64,7 @@ struct Graph<'a> {
 }
 
 impl<'a> Graph<'a> {
-    fn from_seq(seq1: &'a [u8], seq2: &'a [u8]) -> Result<Self> {
+    fn from_seq(seq1: &'a [u8], seq2: &'a [u8]) -> Result<'a, Self> {
         // initializes a graph with the first three edges starting at 0 0
         if seq1.is_empty() || seq2.is_empty() {
             return Err(AStarError::AlignmentError(

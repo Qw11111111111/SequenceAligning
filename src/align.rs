@@ -1,8 +1,10 @@
 use crate::errors::{AStarError, Result};
 use crate::parse::Record;
+use crate::utils::vec_u8_to_str;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
+use std::time::Instant;
 
 const SCHEME: ScoringScheme = ScoringScheme {
     match_score: 0,
@@ -11,8 +13,14 @@ const SCHEME: ScoringScheme = ScoringScheme {
     gap_extension: 8,
     epsilon: 1.5,
 };
-
-pub fn align(seq1: &Record, seq2: &Record) -> Result<()> {
+//TODO clean up, better error handling, tests, optimize
+pub fn align<'a>(seq1: &Record, seq2: &Record, verbose: bool) -> Result<'a, ()> {
+    if seq1.seq.is_empty() || seq2.seq.is_empty() {
+        return Err(AStarError::AlignmentError(
+            "One of the provided sequences was empty. Alignment is skipped",
+        ));
+    }
+    let now = Instant::now();
     let target_length = seq1.seq.len().max(seq2.seq.len());
     let mut queue = BinaryHeap::new();
     queue.push(State {
@@ -22,13 +30,14 @@ pub fn align(seq1: &Record, seq2: &Record) -> Result<()> {
         parent: None,
     });
     while let Some(s) = queue.pop() {
-        //TODO calculate cost of node as heuristic + cost_to reach
-        // also need to somehow save the cumulative cost up to that point. and the path to the point
         if is_converged(&s, &seq1.seq, &seq2.seq) {
+            if verbose {
+                println!("search converged after {:#?}", now.elapsed());
+            }
             println!(
                 "Alignment for db {} and query {} found",
-                seq2.name.iter().map(|&i| i as char).collect::<String>(),
-                seq1.name.iter().map(|&i| i as char).collect::<String>()
+                vec_u8_to_str(&seq2.name),
+                vec_u8_to_str(&seq1.name)
             );
             pprint(s, &seq1.seq, &seq2.seq);
             break;
@@ -86,6 +95,7 @@ fn get_h(seq1: &[u8], seq2: &[u8], x: usize, y: usize, target_length: usize) -> 
 }
 
 fn dynamic_weight(x: usize, y: usize, target_length: usize) -> f64 {
+    //TODO check, if using x.max(y) as depth and seq1.len().max(seq2.len()) as target_len is acceptable
     if x.max(y) <= target_length {
         1. - x.max(y) as f64 / target_length as f64
     } else {
@@ -94,6 +104,7 @@ fn dynamic_weight(x: usize, y: usize, target_length: usize) -> f64 {
 }
 
 fn heuristic_d(seq1: &[u8], seq2: &[u8], x: usize, y: usize) -> f64 {
+    // manhatten distance
     // ((seq1.len() - y).abs_diff(seq2.len() - x)) * SCHEME.gap_extension
     ((seq1.len() - y) + (seq2.len() - x)) as f64
 }
@@ -103,10 +114,10 @@ fn _heuristic_d(seq1: &[u8], seq2: &[u8], x: usize, y: usize) -> f64 {
 }
 
 fn avg_step_cost(seq1: &[u8], seq2: &[u8]) -> f64 {
-    (((seq1.len().abs_diff(seq2.len()) * SCHEME.gap_extension) as f64
+    ((seq1.len().abs_diff(seq2.len()) * SCHEME.gap_extension) as f64
         + seq1.len().min(seq2.len()) as f64
             * (0.75 * SCHEME.mismatch_score as f64 + 0.25 * SCHEME.match_score as f64))
-        / seq1.len().max(seq2.len()) as f64)
+        / seq1.len().max(seq2.len()) as f64
 }
 
 fn is_converged(current: &State, seq1: &[u8], seq2: &[u8]) -> bool {

@@ -31,7 +31,7 @@ pub struct Args {
 
 const ALLOWED_CHARS: [u8; 5] = [b'A', b'G', b'C', b'T', b'N'];
 
-pub fn parse_fasta(path: PathBuf) -> Result<Records> {
+pub fn parse_fasta<'a>(path: PathBuf) -> Result<'a, Records> {
     if !(has_extension(&path, "fa") || has_extension(&path, "fasta")) {
         return Err(AStarError::FastaError(io::Error::from(
             io::ErrorKind::InvalidInput,
