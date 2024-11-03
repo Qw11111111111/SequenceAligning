@@ -6,16 +6,18 @@ use std::rc::Rc;
 
 const SCHEME: ScoringScheme = ScoringScheme {
     match_score: 0,
-    mismatch_score: 2,
+    mismatch_score: 4,
     gap_opening: 2,
-    gap_extension: 4,
+    gap_extension: 8,
+    epsilon: 1.5,
 };
 
 pub fn align(seq1: &Record, seq2: &Record) -> Result<()> {
+    let target_length = seq1.seq.len().max(seq2.seq.len());
     let mut queue = BinaryHeap::new();
     queue.push(State {
         reach_cost: 0,
-        cost: heuristic_d(&seq1.seq, &seq2.seq, 0, 0),
+        cost: get_h(&seq1.seq, &seq2.seq, 0, 0, target_length),
         position: Position { x: 0, y: 0 },
         parent: None,
     });
@@ -35,7 +37,7 @@ pub fn align(seq1: &Record, seq2: &Record) -> Result<()> {
         let pos = &p.position;
         if pos.x < seq2.seq.len() {
             queue.push(State {
-                cost: heuristic_d(&seq1.seq, &seq2.seq, pos.x, pos.y),
+                cost: get_h(&seq1.seq, &seq2.seq, pos.x, pos.y, target_length),
                 reach_cost: p.reach_cost + SCHEME.gap_extension,
                 position: Position {
                     x: pos.x + 1,
@@ -46,7 +48,7 @@ pub fn align(seq1: &Record, seq2: &Record) -> Result<()> {
         }
         if pos.y < seq1.seq.len() {
             queue.push(State {
-                cost: heuristic_d(&seq1.seq, &seq2.seq, pos.x, pos.y),
+                cost: get_h(&seq1.seq, &seq2.seq, pos.x, pos.y, target_length),
                 reach_cost: p.reach_cost + SCHEME.gap_extension,
                 position: Position {
                     x: pos.x,
@@ -57,7 +59,7 @@ pub fn align(seq1: &Record, seq2: &Record) -> Result<()> {
         }
         if pos.y < seq1.seq.len() && pos.x < seq2.seq.len() {
             queue.push(State {
-                cost: heuristic_d(&seq1.seq, &seq2.seq, pos.x, pos.y),
+                cost: get_h(&seq1.seq, &seq2.seq, pos.x, pos.y, target_length),
                 reach_cost: p.reach_cost + get_cost(&seq1.seq[pos.y], &seq2.seq[pos.x]),
                 position: Position {
                     x: pos.x + 1,
@@ -75,22 +77,36 @@ struct ScoringScheme {
     mismatch_score: usize,
     gap_opening: usize,
     gap_extension: usize,
+    epsilon: f64,
 }
 
-fn heuristic_d(seq1: &[u8], seq2: &[u8], x: usize, y: usize) -> usize {
-    ((seq1.len() - y).abs_diff(seq2.len() - x)) * SCHEME.gap_extension
+fn get_h(seq1: &[u8], seq2: &[u8], x: usize, y: usize, target_length: usize) -> usize {
+    ((1. + SCHEME.epsilon * dynamic_weight(x, y, target_length)) * heuristic_d(seq1, seq2, x, y))
+        as usize
 }
 
-fn _heuristic_d(seq1: &[u8], seq2: &[u8], x: usize, y: usize) -> usize {
-    avg_step_cost(seq1, seq2) * (seq1.len() - y + seq2.len() - x)
+fn dynamic_weight(x: usize, y: usize, target_length: usize) -> f64 {
+    if x.max(y) <= target_length {
+        1. - x.max(y) as f64 / target_length as f64
+    } else {
+        0.
+    }
 }
 
-fn avg_step_cost(seq1: &[u8], seq2: &[u8]) -> usize {
+fn heuristic_d(seq1: &[u8], seq2: &[u8], x: usize, y: usize) -> f64 {
+    // ((seq1.len() - y).abs_diff(seq2.len() - x)) * SCHEME.gap_extension
+    ((seq1.len() - y) + (seq2.len() - x)) as f64
+}
+
+fn _heuristic_d(seq1: &[u8], seq2: &[u8], x: usize, y: usize) -> f64 {
+    avg_step_cost(seq1, seq2) * (seq1.len() - y + seq2.len() - x) as f64
+}
+
+fn avg_step_cost(seq1: &[u8], seq2: &[u8]) -> f64 {
     (((seq1.len().abs_diff(seq2.len()) * SCHEME.gap_extension) as f64
         + seq1.len().min(seq2.len()) as f64
             * (0.75 * SCHEME.mismatch_score as f64 + 0.25 * SCHEME.match_score as f64))
         / seq1.len().max(seq2.len()) as f64)
-        .floor() as usize
 }
 
 fn is_converged(current: &State, seq1: &[u8], seq2: &[u8]) -> bool {
@@ -104,11 +120,11 @@ fn pprint(state: State, seq1: &[u8], seq2: &[u8]) {
     let mut y = state.position.y;
     let mut current = state.parent;
     while let Some(parent) = current {
-        if parent.position.y < y {
+        if parent.position.x == x {
             y -= 1;
             db.push('-');
             q.push(seq1[y] as char);
-        } else if parent.position.x < x {
+        } else if parent.position.y == y {
             x -= 1;
             db.push(seq2[x] as char);
             q.push('-');
@@ -176,7 +192,8 @@ mod tests {
         let seq1 = b"AATG";
         let seq2 = b"AATGAA";
         assert!(
-            heuristic_d(seq1, seq2, 0, 0) <= 2 * SCHEME.gap_extension + 4 * SCHEME.match_score,
+            heuristic_d(seq1, seq2, 0, 0) as usize
+                <= 2 * SCHEME.gap_extension + 4 * SCHEME.match_score,
             "expected: {}, actual: {}",
             2 * SCHEME.gap_extension + 4 * SCHEME.match_score,
             heuristic_d(seq1, seq2, 0, 0)
