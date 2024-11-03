@@ -10,7 +10,7 @@ const SCHEME: ScoringScheme = ScoringScheme {
     match_score: 0,
     mismatch_score: 4,
     gap_opening: 2,
-    gap_extension: 8,
+    gap_extension: 6,
     epsilon: 1.5,
 };
 //TODO clean up, better error handling, tests, optimize
@@ -28,6 +28,8 @@ pub fn align<'a>(seq1: &Record, seq2: &Record, verbose: bool) -> Result<'a, ()> 
         cost: get_h(&seq1.seq, &seq2.seq, 0, 0, target_length),
         position: Position { x: 0, y: 0 },
         parent: None,
+        in_q_gap: false,
+        in_db_gap: false,
     });
     while let Some(s) = queue.pop() {
         if is_converged(&s, &seq1.seq, &seq2.seq) {
@@ -47,23 +49,37 @@ pub fn align<'a>(seq1: &Record, seq2: &Record, verbose: bool) -> Result<'a, ()> 
         if pos.x < seq2.seq.len() {
             queue.push(State {
                 cost: get_h(&seq1.seq, &seq2.seq, pos.x, pos.y, target_length),
-                reach_cost: p.reach_cost + SCHEME.gap_extension,
+                reach_cost: p.reach_cost
+                    + if p.in_q_gap {
+                        SCHEME.gap_extension
+                    } else {
+                        SCHEME.gap_opening + SCHEME.gap_extension
+                    },
                 position: Position {
                     x: pos.x + 1,
                     y: pos.y,
                 },
                 parent: Some(p.clone()),
+                in_q_gap: true,
+                in_db_gap: p.in_db_gap,
             });
         }
         if pos.y < seq1.seq.len() {
             queue.push(State {
                 cost: get_h(&seq1.seq, &seq2.seq, pos.x, pos.y, target_length),
-                reach_cost: p.reach_cost + SCHEME.gap_extension,
+                reach_cost: p.reach_cost
+                    + if p.in_db_gap {
+                        SCHEME.gap_extension
+                    } else {
+                        SCHEME.gap_opening + SCHEME.gap_extension
+                    },
                 position: Position {
                     x: pos.x,
                     y: pos.y + 1,
                 },
                 parent: Some(p.clone()),
+                in_q_gap: p.in_q_gap,
+                in_db_gap: true,
             })
         }
         if pos.y < seq1.seq.len() && pos.x < seq2.seq.len() {
@@ -75,6 +91,8 @@ pub fn align<'a>(seq1: &Record, seq2: &Record, verbose: bool) -> Result<'a, ()> 
                     y: pos.y + 1,
                 },
                 parent: Some(p.clone()),
+                in_q_gap: false,
+                in_db_gap: false,
             })
         }
     }
@@ -164,6 +182,8 @@ struct State {
     reach_cost: usize,
     position: Position,
     parent: Option<Rc<State>>,
+    in_q_gap: bool,
+    in_db_gap: bool,
 }
 
 impl Ord for State {
@@ -218,12 +238,16 @@ mod tests {
             reach_cost: 0,
             position: Position { x: 0, y: 0 },
             parent: None,
+            in_q_gap: false,
+            in_db_gap: false,
         });
         q.push(State {
             cost: 5,
             reach_cost: 4,
             position: Position { x: 2, y: 3 },
             parent: None,
+            in_q_gap: false,
+            in_db_gap: false,
         });
         assert_eq!(
             q.peek(),
@@ -232,6 +256,8 @@ mod tests {
                 reach_cost: 4,
                 position: Position { x: 2, y: 3 },
                 parent: None,
+                in_q_gap: false,
+                in_db_gap: false
             })
         )
     }

@@ -68,27 +68,11 @@ impl<'a> Graph<'a> {
         // initializes a graph with the first three edges starting at 0 0
         if seq1.is_empty() || seq2.is_empty() {
             return Err(AStarError::AlignmentError(
-                "Tried to align with empty sequence".into(),
+                "Tried to align with empty sequence",
             ));
         }
 
         let edges = vec![vec![Vec::default(); seq1.len()]; seq2.len()];
-        /*
-        edges[0][0] = vec![
-            Edge {
-                node: Position { x: 1, y: 0 },
-                cost: SCHEME.gap_extension + SCHEME.gap_opening,
-            },
-            Edge {
-                node: Position { x: 1, y: 1 },
-                cost: get_cost(&seq1[0], &seq2[0]),
-            },
-            Edge {
-                node: Position { x: 0, y: 1 },
-                cost: SCHEME.gap_extension + SCHEME.gap_opening,
-            },
-        ];
-        */
         Ok(Self {
             query: seq1,
             db: seq2,
