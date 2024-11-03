@@ -30,40 +30,144 @@ pub fn align(seq1: &Record, seq2: &Record) -> Result<()> {
     };
     let mut queue = BinaryHeap::new();
     queue.push(State {
-        cost: 0,
+        reach_cost: 0,
+        cost: heuristic_d(&seq1.seq, &seq2.seq, 0, 0),
         position: Position { x: 0, y: 0 },
+        moves: Vec::with_capacity(seq1.seq.len().max(seq2.seq.len())),
     });
     while let Some(s) = queue.pop() {
-        graph.extend(&s.position);
+        //graph.extend(&s.position);
         //TODO calculate cost of node as heuristic + cost_to reach
-        // also need to somehow save the cumulative cost up to that point.
+        // also need to somehow save the cumulative cost up to that point. and the path to the point
+        if is_converged(&s, &seq1.seq, &seq2.seq) {
+            println!(
+                "Alignment for db {} and query {} found",
+                seq2.name.iter().map(|&i| i as char).collect::<String>(),
+                seq1.name.iter().map(|&i| i as char).collect::<String>()
+            );
+            pprint(&s, &seq1.seq, &seq2.seq);
+            break;
+        }
+        if s.position.x < seq1.seq.len() {
+            let mut mvs = s.moves.clone();
+            mvs.push(Move::Horizontal);
+            queue.push(State {
+                cost: heuristic_d(&seq1.seq, &seq2.seq, s.position.x, s.position.y),
+                reach_cost: s.reach_cost,
+                position: Position {
+                    x: s.position.x + 1,
+                    y: s.position.y,
+                },
+                moves: mvs,
+            });
+        }
+        if s.position.y < seq2.seq.len() {
+            let mut mvs = s.moves.clone();
+            mvs.push(Move::Vertical);
+            queue.push(State {
+                cost: heuristic_d(&seq1.seq, &seq2.seq, s.position.x, s.position.y),
+                reach_cost: s.reach_cost,
+                position: Position {
+                    x: s.position.x,
+                    y: s.position.y + 1,
+                },
+                moves: mvs,
+            })
+        }
+        if s.position.y < seq2.seq.len() && s.position.x < seq1.seq.len() {
+            let mut mvs = s.moves.clone();
+            mvs.push(Move::Diagonal);
+            queue.push(State {
+                cost: heuristic_d(&seq1.seq, &seq2.seq, s.position.x, s.position.y),
+                reach_cost: s.reach_cost
+                    + if seq1.seq[s.position.y] == seq2.seq[s.position.x] {
+                        SCHEME.match_score
+                    } else {
+                        SCHEME.mismatch_score
+                    },
+                position: Position {
+                    x: s.position.x + 1,
+                    y: s.position.y + 1,
+                },
+                moves: mvs,
+            })
+        }
     }
     Ok(())
 }
 
 struct ScoringScheme {
-    match_score: i16,
-    mismatch_score: i16,
-    gap_opening: i16,
-    gap_extension: i16,
+    match_score: usize,
+    mismatch_score: usize,
+    gap_opening: usize,
+    gap_extension: usize,
 }
 
-fn heuristic_d(seq1: &Vec<u8>, seq2: &Vec<u8>, x: usize, y: usize) -> u16 {
+fn heuristic_d(seq1: &[u8], seq2: &[u8], x: usize, y: usize) -> usize {
     0
+}
+
+fn is_converged(current: &State, seq1: &[u8], seq2: &[u8]) -> bool {
+    current.position.x == seq2.len() && current.position.y == seq1.len()
+}
+
+fn pprint(state: &State, seq1: &[u8], seq2: &[u8]) {
+    let mut db = String::with_capacity(state.moves.len());
+    let mut q = String::with_capacity(state.moves.len());
+    let mut x = state.position.x;
+    let mut y = state.position.y;
+    for mv in state.moves.iter().rev() {
+        match mv {
+            Move::Diagonal => {
+                db.push(seq2[y] as char);
+                q.push(seq1[x] as char);
+                y -= 1;
+                x -= 1;
+            }
+            Move::Horizontal => {
+                db.push(seq2[x] as char);
+                q.push('-');
+                x -= 1;
+            }
+            Move::Vertical => {
+                db.push('-');
+                q.push(seq1[y] as char);
+                y -= 1;
+            }
+        }
+    }
+    println!("{}", db);
+    println!(
+        "{}",
+        q.chars()
+            .zip(db.chars())
+            .map(|(q, d)| if q == d { '|' } else { ' ' })
+            .collect::<String>()
+    );
+    println!("{}", q);
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+enum Move {
+    Diagonal,
+    Horizontal,
+    Vertical,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct State {
     cost: usize,
+    reach_cost: usize,
     position: Position,
+    moves: Vec<Move>,
 }
 
 impl Ord for State {
     fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .cost
-            .cmp(&self.cost)
+        (other.cost + other.reach_cost)
+            .cmp(&(self.cost + self.reach_cost))
             .then_with(|| self.position.cmp(&other.position))
+            .then_with(|| self.moves.cmp(&other.moves))
     }
 }
 
@@ -82,7 +186,7 @@ struct Position {
 #[derive(Default, Debug, Clone)]
 struct Edge {
     node: Position,
-    cost: i16,
+    cost: usize,
 }
 
 #[derive(Debug)]
@@ -175,7 +279,7 @@ impl<'a> Graph<'a> {
     }
 }
 
-fn get_cost(c1: &u8, c2: &u8) -> i16 {
+fn get_cost(c1: &u8, c2: &u8) -> usize {
     if *c1 == *c2 || *c1 == b'N' || *c2 == b'N' {
         SCHEME.match_score
     } else {
