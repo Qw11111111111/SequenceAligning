@@ -1,7 +1,9 @@
 mod align;
 pub mod errors;
 mod parse;
+mod wfa;
 
+use align::align;
 use clap::Parser;
 use errors::{AStarError, Result};
 use parse::{parse_fasta, Args, Records};
@@ -48,4 +50,11 @@ fn main() {
             return;
         }
     };
+    for (q, d) in query.records.iter().zip(db.records.iter()) {
+        match align(q, d) {
+            Err(AStarError::AlignmentError(_)) => {}
+            Ok(_) => {}
+            _ => {}
+        }
+    }
 }
