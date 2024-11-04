@@ -10,7 +10,7 @@ const SCHEME: ScoringScheme = ScoringScheme {
     gap_opening: 2,
     gap_extension: 4,
 };
-pub fn align<'a>(seq1: &Record, seq2: &Record) -> Result<'a, ()> {
+pub fn wfa_align<'a>(seq1: &Record, seq2: &Record) -> Result<'a, ()> {
     let graph = match Graph::from_seq(&seq1.seq, &seq2.seq) {
         Err(AStarError::AlignmentError(_)) => {
             eprintln!(

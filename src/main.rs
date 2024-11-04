@@ -1,6 +1,7 @@
-#[allow(dead_code, unused_imports)]
 mod align;
 pub mod errors;
+#[allow(dead_code, unused_imports)]
+mod needleman_wunsch;
 mod parse;
 pub mod utils;
 mod wfa;
@@ -8,7 +9,9 @@ mod wfa;
 use align::align;
 use clap::Parser;
 use errors::{AStarError, Result};
-use parse::{parse_fasta, Args, Records};
+use needleman_wunsch::n_w_align;
+use parse::{parse_fasta, Algo, Args, Records};
+use wfa::wfa_align;
 
 //TODO handle errors appropriatly
 fn main() {
@@ -55,7 +58,11 @@ fn main() {
     };
     for d in db.records.iter() {
         for q in query.records.iter() {
-            match align(q, d, args.verbose) {
+            match match args.algo {
+                Algo::AStar => align(q, d, args.verbose),
+                Algo::NeedlemanWunsch => n_w_align(q, d, args.verbose, false),
+                Algo::Wfa => wfa_align(q, d),
+            } {
                 Err(AStarError::AlignmentError(e)) => {
                     eprintln!(
                         "An error occured during alignment of {} and {}\n{e}",

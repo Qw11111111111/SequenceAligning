@@ -1,9 +1,9 @@
 use crate::errors::{AStarError, Result};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use std::fmt::Display;
 use std::fs::{read, write};
-use std::io;
 use std::path::PathBuf;
+use std::{default, io};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -27,6 +27,18 @@ pub struct Args {
     /// modus
     #[arg(short, long, default_value = "false")]
     pub local: bool,
+
+    /// algo
+    #[arg(short, long, value_enum, default_value_t = Algo::AStar)]
+    pub algo: Algo,
+}
+
+#[derive(ValueEnum, Debug, Default, Clone)]
+pub enum Algo {
+    #[default]
+    AStar,
+    NeedlemanWunsch,
+    Wfa,
 }
 
 const ALLOWED_CHARS: [u8; 5] = [b'A', b'G', b'C', b'T', b'N'];
