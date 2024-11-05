@@ -41,7 +41,7 @@ impl ScoreMatrix {
     }
 
     fn fill(&mut self, seq1: &str, seq2: &str, scheme: &ScoringScheme, local: bool) {
-        if !local {
+        if true || !local {
             self.scores[0]
                 .iter_mut()
                 .zip(self.paths[0].iter_mut())

@@ -16,7 +16,7 @@ const SCHEME: ScoringScheme = ScoringScheme {
     k: 0.11,
 };
 //TODO clean up, better error handling, tests, optimize
-pub fn align<'a>(seq1: &Record, seq2: &Record, verbose: bool) -> Result<'a, ()> {
+pub fn align<'a>(seq1: &Record, seq2: &Record, verbose: bool, local: bool) -> Result<'a, ()> {
     if seq1.seq.is_empty() || seq2.seq.is_empty() {
         return Err(AStarError::AlignmentError(
             "One of the provided sequences was empty. Alignment is skipped",
@@ -47,9 +47,79 @@ pub fn align<'a>(seq1: &Record, seq2: &Record, verbose: bool) -> Result<'a, ()> 
             pprint(s, &seq1.seq, &seq2.seq);
             return Ok(());
         }
-        expand_queue(&mut queue, s, seq1, seq2, target_length)?;
+        if local {
+            expand_queue_semi_global(&mut queue, s, seq1, seq2, target_length)?;
+        } else {
+            expand_queue(&mut queue, s, seq1, seq2, target_length)?;
+        }
     }
     Err(AStarError::AlignmentError("Alignment did not converge"))
+}
+
+fn expand_queue_semi_global<'a>(
+    queue: &mut BinaryHeap<State>,
+    s: State,
+    seq1: &Record,
+    seq2: &Record,
+    target_length: usize,
+) -> Result<'a, ()> {
+    let p = Rc::from(s);
+    let pos = &p.position;
+    if pos.x < seq2.seq.len() {
+        queue.push(State {
+            cost: get_h(&seq1.seq, &seq2.seq, pos.x, pos.y, target_length),
+            reach_cost: p.reach_cost
+                + if pos.y == 0 || pos.y == seq1.seq.len() {
+                    0
+                } else if p.in_q_gap {
+                    SCHEME.gap_extension
+                } else {
+                    SCHEME.gap_opening + SCHEME.gap_extension
+                },
+            position: Position {
+                x: pos.x + 1,
+                y: pos.y,
+            },
+            parent: Some(p.clone()),
+            in_q_gap: true,
+            in_db_gap: p.in_db_gap,
+        });
+    }
+    if pos.y < seq1.seq.len() {
+        queue.push(State {
+            cost: get_h(&seq1.seq, &seq2.seq, pos.x, pos.y, target_length),
+            reach_cost: p.reach_cost
+                + if pos.x == 0 || pos.x == seq2.seq.len() {
+                    0
+                } else if p.in_db_gap {
+                    SCHEME.gap_extension
+                } else {
+                    SCHEME.gap_opening + SCHEME.gap_extension
+                },
+            position: Position {
+                x: pos.x,
+                y: pos.y + 1,
+            },
+            parent: Some(p.clone()),
+            in_q_gap: p.in_q_gap,
+            in_db_gap: true,
+        })
+    }
+    if pos.y < seq1.seq.len() && pos.x < seq2.seq.len() {
+        queue.push(State {
+            cost: get_h(&seq1.seq, &seq2.seq, pos.x, pos.y, target_length),
+            reach_cost: p.reach_cost + get_cost(&seq1.seq[pos.y], &seq2.seq[pos.x]),
+            position: Position {
+                x: pos.x + 1,
+                y: pos.y + 1,
+            },
+            parent: Some(p.clone()),
+            in_q_gap: false,
+            in_db_gap: false,
+        })
+    }
+
+    Ok(())
 }
 
 fn expand_queue<'a>(

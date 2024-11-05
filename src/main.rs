@@ -59,7 +59,7 @@ fn main() {
     for d in db.records.iter() {
         for q in query.records.iter() {
             match match args.algo {
-                Algo::AStar => align(q, d, args.verbose),
+                Algo::AStar => align(q, d, args.verbose, args.local),
                 Algo::NeedlemanWunsch => n_w_align(q, d, args.verbose, false),
                 Algo::Wfa => wfa_align(q, d),
             } {
