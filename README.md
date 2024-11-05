@@ -1,2 +1,4 @@
-# a_star_align
-sequence aligner using astar algorithm
+# Aligners
+WFA
+A star
+Needleman-Wunsch
