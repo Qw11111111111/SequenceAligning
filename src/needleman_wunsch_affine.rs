@@ -108,7 +108,7 @@ impl<'a> ScoreMatrix<'a> {
     fn i_pointer(&self, x: usize, y: usize) -> Vec<Rc<ArrayElement<'a>>> {
         let mut p = Vec::default();
         if self.i_score(x, y) == self.i_scores[x][y - 1].score + SCHEME.gap_extension {
-            p.push(Rc::clone(&self.d_scores[x][y - 1]));
+            p.push(Rc::clone(&self.i_scores[x][y - 1]));
         }
         if self.i_score(x, y)
             == self.m_scores[x][y - 1].score + SCHEME.gap_opening + SCHEME.gap_extension

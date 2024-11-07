@@ -251,6 +251,8 @@ fn pprint(state: State, seq1: &[u8], seq2: &[u8]) {
         }
         current = parent.parent.clone();
     }
+    db = db.chars().rev().collect::<String>();
+    q = q.chars().rev().collect::<String>();
     println!("{}", db);
     println!(
         "{}",
