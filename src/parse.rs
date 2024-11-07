@@ -25,8 +25,8 @@ pub struct Args {
     pub verbose: bool,
     //TODO: enable more modi
     /// modus
-    #[arg(short, long, default_value = "false")]
-    pub local: bool,
+    #[arg(short, long, value_enum, default_value_t = Mode::Global)]
+    pub mode: Mode,
 
     /// algo
     #[arg(short, long, value_enum, default_value_t = Algo::AStar)]
@@ -39,6 +39,14 @@ pub enum Algo {
     AStar,
     NeedlemanWunsch,
     Wfa,
+}
+
+#[derive(ValueEnum, Debug, Default, Clone)]
+pub enum Mode {
+    #[default]
+    Global,
+    Local,
+    SemiGlobal,
 }
 
 const ALLOWED_CHARS: [u8; 5] = [b'A', b'G', b'C', b'T', b'N'];

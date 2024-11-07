@@ -1,7 +1,8 @@
 mod align;
 pub mod errors;
 #[allow(dead_code, unused_imports)]
-mod needleman_wunsch;
+//mod needleman_wunsch;
+mod needleman_wunsch_affine;
 mod parse;
 pub mod utils;
 mod wfa;
@@ -9,8 +10,9 @@ mod wfa;
 use align::align;
 use clap::Parser;
 use errors::{AStarError, Result};
-use needleman_wunsch::n_w_align;
-use parse::{parse_fasta, Algo, Args, Records};
+use needleman_wunsch_affine::n_w_align;
+//use needleman_wunsch::n_w_align;
+use parse::{parse_fasta, Algo, Args, Mode, Records};
 use wfa::wfa_align;
 
 //TODO handle errors appropriatly
@@ -59,8 +61,8 @@ fn main() {
     for d in db.records.iter() {
         for q in query.records.iter() {
             match match args.algo {
-                Algo::AStar => align(q, d, args.verbose, args.local),
-                Algo::NeedlemanWunsch => n_w_align(q, d, args.verbose, false),
+                Algo::AStar => align(q, d, args.verbose, false),
+                Algo::NeedlemanWunsch => n_w_align(q, d, args.verbose, args.mode.clone()),
                 Algo::Wfa => wfa_align(q, d),
             } {
                 Err(AStarError::AlignmentError(e)) => {
