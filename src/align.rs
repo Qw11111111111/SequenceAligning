@@ -214,10 +214,10 @@ fn heuristic_d(seq1: &[u8], seq2: &[u8], x: usize, y: usize) -> f64 {
 }
 
 fn _heuristic_d(seq1: &[u8], seq2: &[u8], x: usize, y: usize) -> f64 {
-    avg_step_cost(seq1, seq2) * (seq1.len() - y + seq2.len() - x) as f64
+    _avg_step_cost(seq1, seq2) * (seq1.len() - y + seq2.len() - x) as f64
 }
 
-fn avg_step_cost(seq1: &[u8], seq2: &[u8]) -> f64 {
+fn _avg_step_cost(seq1: &[u8], seq2: &[u8]) -> f64 {
     ((seq1.len().abs_diff(seq2.len()) * SCHEME.gap_extension as usize) as f64
         + seq1.len().min(seq2.len()) as f64
             * (0.75 * SCHEME.mismatch_score as f64 + 0.25 * SCHEME.match_score as f64))

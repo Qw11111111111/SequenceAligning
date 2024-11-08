@@ -235,8 +235,8 @@ impl<'a> ScoreTensor<'a> {
                     }
                 }
             }
-            ScoreTensor::Local(matrix) => { /* local fill logic */ }
-            ScoreTensor::SemiGlobal(matrix) => { /* semi-global fill logic */ }
+            ScoreTensor::Local(_matrix) => { /* local fill logic */ }
+            ScoreTensor::SemiGlobal(_matrix) => { /* semi-global fill logic */ }
         }
     }
     fn traceback(&self, seq1: &[u8], seq2: &[u8]) {
@@ -421,7 +421,7 @@ fn default_array<'a>(x: usize, y: usize) -> Array<'a> {
     vec![vec![Rc::default(); y + 1]; x + 1]
 }
 
-pub fn n_w_align<'a>(seq1: &Record, seq2: &Record, verbose: bool, mode: Mode) -> Result<'a, ()> {
+pub fn n_w_align<'a>(seq1: &Record, seq2: &Record, _verbose: bool, mode: Mode) -> Result<'a, ()> {
     let now = Instant::now();
     match mode {
         Mode::Global => {
@@ -430,8 +430,8 @@ pub fn n_w_align<'a>(seq1: &Record, seq2: &Record, verbose: bool, mode: Mode) ->
             mat.traceback(&seq1.seq, &seq2.seq);
             println!("{:#?}", now.elapsed());
         }
-        Mode::SemiGlobal => {}
-        Mode::Local => {}
+        Mode::SemiGlobal => return Err(AStarError::AlignmentError("not implemented")),
+        Mode::Local => return Err(AStarError::AlignmentError("not implemented")),
     }
     Ok(())
 }
@@ -454,3 +454,17 @@ fn argmax(mat: &Array) -> Vec<(usize, usize)> {
     idc
 }
 */
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_mat_fill() {
+        //todo!();
+    }
+
+    #[test]
+    fn test_traceback() {
+        //todo!()
+    }
+}

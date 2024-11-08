@@ -63,7 +63,7 @@ fn main() {
             match match args.algo {
                 Algo::AStar => align(q, d, args.verbose, false),
                 Algo::NeedlemanWunsch => n_w_align(q, d, args.verbose, args.mode.clone()),
-                Algo::Wfa => wfa_align(q, d),
+                Algo::Wfa => wfa_align(q, d, args.mode.clone()),
             } {
                 Err(AStarError::AlignmentError(e)) => {
                     eprintln!(

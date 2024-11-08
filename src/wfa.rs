@@ -1,151 +1,141 @@
-use crate::errors::{AStarError, Result};
-use crate::parse::Record;
-//TODO implement WFA using the graph
+use std::fmt::Debug;
 
-type EdgeArray = Vec<Vec<Vec<Edge>>>;
+use crate::errors::{AStarError, Result};
+use crate::parse::{Mode, Record};
+
+type WaveFrontVec<'a> = Vec<Option<WaveFrontTensor<'a>>>;
 
 const SCHEME: ScoringScheme = ScoringScheme {
-    match_score: 0,
-    mismatch_score: 2,
+    mismatch: 4,
     gap_opening: 2,
-    gap_extension: 4,
+    gap_extension: 6,
 };
-pub fn wfa_align<'a>(seq1: &Record, seq2: &Record) -> Result<'a, ()> {
-    let graph = match Graph::from_seq(&seq1.seq, &seq2.seq) {
-        Err(AStarError::AlignmentError(_)) => {
-            eprintln!(
-                "One of the provided sequences in records {:#?} or {:#?} was empty. Skipping",
-                seq1.name, seq2.name
-            );
-            return Ok(());
-        }
-        Ok(res) => res,
-        _ => {
-            return Err(AStarError::AlignmentError(
-                "Something unexpected happend during grao constructio".into(),
-            ))
-        }
+
+pub fn wfa_align<'a>(seq1: &Record, seq2: &Record, mode: Mode) -> Result<'a, ()> {
+    let mut ocean = match mode {
+        Mode::Global => Ocean::global(),
+        _ => return Err(AStarError::AlignmentError("not implemented")),
     };
+    ocean.expand(&seq1.seq, &seq2.seq)?;
     Ok(())
 }
-
-fn get_cost(c1: &u8, c2: &u8) -> usize {
-    if *c1 == *c2 || *c1 == b'N' || *c2 == b'N' {
-        SCHEME.match_score
-    } else {
-        SCHEME.mismatch_score
-    }
+#[derive(Default, Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
+enum State {
+    #[default]
+    M,
+    D,
+    I,
 }
 
 struct ScoringScheme {
-    match_score: usize,
-    mismatch_score: usize,
-    gap_opening: usize,
-    gap_extension: usize,
+    mismatch: i32,
+    gap_opening: i32,
+    gap_extension: i32,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Default, Clone)]
-struct Position {
-    x: usize,
-    y: usize,
+#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Clone)]
+struct WaveFrontElement<'a> {
+    offset: i32,
+    // backtrace info
+    parents: Vec<&'a WaveFrontElement<'a>>,
+    state: State,
 }
 
-#[derive(Default, Debug, Clone)]
-struct Edge {
-    node: Position,
-    cost: usize,
+impl<'a> WaveFrontElement<'a> {
+    fn x(&self, diag: i32) -> usize {
+        (self.offset - diag.min(0)) as usize
+    }
+    fn y(&self, diag: i32) -> usize {
+        (self.offset + diag.max(0)) as usize
+    }
 }
+
+impl<'a> Debug for WaveFrontElement<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+#[derive(Default, Debug)]
+struct WaveFront<'a> {
+    hi: i32,
+    lo: i32,
+    elements: Vec<WaveFrontElement<'a>>,
+}
+
+impl<'a> WaveFront<'a> {
+    fn expand(&mut self, seq1: &[u8], seq2: &[u8]) {
+        for (i, element) in self.elements.iter_mut().enumerate() {
+            while seq1[element.y(self.lo + i as i32)] == seq2[element.x(self.lo + i as i32)] {
+                element.offset += 1;
+            }
+        }
+    }
+}
+
+#[derive(Default, Debug)]
+struct WaveFrontTensor<'a> {
+    i: Option<WaveFront<'a>>,
+    d: Option<WaveFront<'a>>,
+    m: Option<WaveFront<'a>>,
+}
+
+impl<'a> WaveFrontTensor<'a> {}
 
 #[derive(Debug)]
-struct Graph<'a> {
-    query: &'a [u8],
-    db: &'a [u8],
-    edges: EdgeArray,
+enum Ocean<'a> {
+    Global(WaveFrontVec<'a>),
+    Local(WaveFrontVec<'a>),
+    SemiGlobal(WaveFrontVec<'a>),
 }
 
-impl<'a> Graph<'a> {
-    fn from_seq(seq1: &'a [u8], seq2: &'a [u8]) -> Result<'a, Self> {
-        // initializes a graph with the first three edges starting at 0 0
-        if seq1.is_empty() || seq2.is_empty() {
-            return Err(AStarError::AlignmentError(
-                "Tried to align with empty sequence",
-            ));
-        }
-
-        let edges = vec![vec![Vec::default(); seq1.len()]; seq2.len()];
-        Ok(Self {
-            query: seq1,
-            db: seq2,
-            edges,
-        })
+impl<'a> Ocean<'a> {
+    fn global() -> Self {
+        Self::Global(vec![Some(WaveFrontTensor {
+            i: None,
+            d: None,
+            m: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: vec![WaveFrontElement {
+                    offset: 0,
+                    state: State::M,
+                    parents: Vec::default(),
+                }],
+            }),
+        })])
     }
 
-    fn extend(&mut self, node: &Position) {
-        if !self.edges[node.x][node.y].is_empty()
-            || node.y == self.query.len() && node.x == self.db.len()
-        {
-            return;
+    fn expand(&mut self, seq1: &[u8], seq2: &[u8]) -> Result<'a, ()> {
+        match self {
+            Ocean::Global(ref mut wfs) => {
+                let s = wfs.len() as i32;
+                if (s < SCHEME.mismatch || wfs[(s - SCHEME.mismatch) as usize].is_none())
+                    && (s < SCHEME.gap_extension
+                        || wfs[(s - SCHEME.gap_extension) as usize].is_none())
+                    && (s < SCHEME.gap_opening - SCHEME.gap_extension
+                        || wfs[(s - SCHEME.gap_opening - SCHEME.gap_extension) as usize].is_none())
+                {
+                    wfs.push(None);
+                    return Ok(());
+                }
+            }
+            Ocean::SemiGlobal(_) => return Err(AStarError::AlignmentError("not implemented")),
+            Ocean::Local(_) => return Err(AStarError::AlignmentError("not implemented")),
         }
-        if node.y == self.query.len() {
-            self.edges[node.x][node.y] = vec![Edge {
-                node: Position {
-                    x: node.x + 1,
-                    y: node.y,
-                },
-                cost: SCHEME.gap_extension,
-            }];
-        } else if node.x == self.db.len() {
-            self.edges[node.x][node.y] = vec![Edge {
-                node: Position {
-                    x: node.x,
-                    y: node.y + 1,
-                },
-                cost: SCHEME.gap_extension,
-            }];
-        } else {
-            self.edges[node.x][node.y] = vec![
-                Edge {
-                    node: Position {
-                        x: node.x + 1,
-                        y: node.y,
-                    },
-                    cost: SCHEME.gap_extension,
-                },
-                Edge {
-                    node: Position {
-                        x: node.x + 1,
-                        y: node.y + 1,
-                    },
-                    cost: get_cost(&self.query[node.y], &self.query[node.x]),
-                },
-                Edge {
-                    node: Position {
-                        x: node.x,
-                        y: node.y + 1,
-                    },
-                    cost: SCHEME.gap_extension,
-                },
-            ];
-        }
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-
     #[test]
-    fn good_graph() {
-        let s1 = b"ATGCGATG";
-        let s2 = b"CAT";
-        assert!(Graph::from_seq(s1, s2).is_ok());
+    fn test_init() {
+        //todo!()
     }
     #[test]
-    fn bad_graph() {
-        let s1 = b"";
-        let s2 = b"ATGTG";
-        assert!(Graph::from_seq(s1, s2).is_err());
+    fn test_expand() {
+        //todo!()
     }
-    #[test]
-    fn test_graph_extend() {}
 }
