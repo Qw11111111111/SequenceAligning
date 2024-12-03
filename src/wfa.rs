@@ -128,7 +128,6 @@ impl<'a> WaveFrontTensor<'a> {
         other_gap_open: Option<&WaveFrontTensor>,   // s - o - e
         other_gap_extend: Option<&WaveFrontTensor>, // s - e
         other_mismatch: Option<&WaveFrontTensor>,   // s - x
-        other_match: Option<&WaveFrontTensor>,      // s
     ) -> Option<Self> {
         let hi: i32 = [
             other_gap_open.and_then(|r| r.m.as_ref().map(|r| r.hi)),
@@ -152,6 +151,8 @@ impl<'a> WaveFrontTensor<'a> {
         .min()?
             - 1;
         println!("lo: {}, hi: {}", lo, hi);
+
+        // TODO: calculate lo and hi dynamically, as different wavefronts might have different boundaries?. also use I and D for M
 
         let (mut i, mut d, mut m) = (
             WaveFront::with_hi_lo(hi, lo),
@@ -194,10 +195,8 @@ impl<'a> WaveFrontTensor<'a> {
                 offset: *[
                     other_mismatch
                         .and_then(|r| r.m.as_ref().map(|r| r.get_offset(idx + 1).unwrap_or(&-1))),
-                    other_match
-                        .and_then(|r| r.i.as_ref().map(|r| r.get_offset(idx).unwrap_or(&-1))),
-                    other_match
-                        .and_then(|r| r.d.as_ref().map(|r| r.get_offset(idx).unwrap_or(&-1))),
+                    i.get_offset(idx),
+                    d.get_offset(idx),
                 ]
                 .iter()
                 .filter_map(|&opt| opt)
@@ -271,7 +270,6 @@ impl<'a> Ocean<'a> {
                         .and_then(|r| r.as_ref()),
                     wfs.get((s - SCHEME.mismatch) as usize)
                         .and_then(|r| r.as_ref()),
-                    wfs.get(s).and_then(|r| r.as_ref()),
                 ));
             }
             Ocean::SemiGlobal(_) => return Err(AStarError::AlignmentError("not implemented")),
@@ -294,7 +292,7 @@ mod test {
     }
     #[test]
     fn test_wavefront_tensor_new_all_none() {
-        let tensor = WaveFrontTensor::new(None, None, None, None);
+        let tensor = WaveFrontTensor::new(None, None, None);
         assert!(
             tensor.is_none(),
             "Tensor should be None when all inputs are None"
@@ -340,16 +338,16 @@ mod test {
             }),
         };
 
-        let result = WaveFrontTensor::new(Some(&mock_tensor), None, None, None).unwrap();
+        let result = WaveFrontTensor::new(Some(&mock_tensor), None, None).unwrap();
 
         // Assert hi and lo
-        assert_eq!(result.i.as_ref().unwrap().lo, -3, "lo should decrease by 1");
-        assert_eq!(result.i.as_ref().unwrap().hi, 4, "hi should increase by 1");
+        assert_eq!(result.m.as_ref().unwrap().lo, -3, "lo should decrease by 1");
+        assert_eq!(result.m.as_ref().unwrap().hi, 4, "hi should increase by 1");
 
         // Assert the range is correctly initialized
-        let expected_size = 6; // From -3 to 4
+        let expected_size = 8; // From -3 to 4
         assert_eq!(
-            result.i.as_ref().unwrap().elements.len(),
+            result.m.as_ref().unwrap().elements.len(),
             expected_size,
             "Wavefront I should cover the correct range"
         );
@@ -407,7 +405,7 @@ mod test {
             m: None,
         };
 
-        let result = WaveFrontTensor::new(Some(&gap_open), Some(&gap_extend), None, None).unwrap();
+        let result = WaveFrontTensor::new(Some(&gap_open), Some(&gap_extend), None).unwrap();
 
         // Assert hi and lo
         assert_eq!(
@@ -443,7 +441,7 @@ mod test {
             d: None,
         };
 
-        let result = WaveFrontTensor::new(Some(&gap_open), None, None, None).unwrap();
+        let result = WaveFrontTensor::new(Some(&gap_open), None, None).unwrap();
 
         // Assert hi and lo
         assert_eq!(result.i.as_ref().unwrap().lo, -2, "lo should decrease by 1");
@@ -466,7 +464,7 @@ mod test {
             d: None,
         };
 
-        let result = WaveFrontTensor::new(None, None, Some(&mismatch), None).unwrap();
+        let result = WaveFrontTensor::new(None, None, Some(&mismatch)).unwrap();
 
         // Assert hi and lo
         assert_eq!(
