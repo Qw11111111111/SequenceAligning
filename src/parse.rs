@@ -1,4 +1,4 @@
-use crate::errors::{AStarError, Result};
+use crate::errors::{AlignerError, Result};
 use clap::{Parser, ValueEnum};
 use std::fmt::Display;
 use std::fs::{read, write};
@@ -53,7 +53,7 @@ const ALLOWED_CHARS: [u8; 5] = [b'A', b'G', b'C', b'T', b'N'];
 
 pub fn parse_fasta<'a>(path: PathBuf) -> Result<'a, Records> {
     if !(has_extension(&path, "fa") || has_extension(&path, "fasta")) {
-        return Err(AStarError::FastaError(io::Error::from(
+        return Err(AlignerError::FastaError(io::Error::from(
             io::ErrorKind::InvalidInput,
         )));
     }
@@ -89,7 +89,7 @@ pub fn parse_fasta<'a>(path: PathBuf) -> Result<'a, Records> {
     recs.records.push(current_rec);
     recs.records.remove(0);
     if !err_chars.is_empty() {
-        return Err(AStarError::CharError {
+        return Err(AlignerError::CharError {
             res: recs,
             chars: err_chars,
         });
@@ -196,7 +196,7 @@ mod tests {
         let new_p = original_p.with_extension("fa");
         fs::rename(original_p, &new_p)?;
         match parse_fasta(new_p) {
-            Err(AStarError::CharError { res, chars }) => {
+            Err(AlignerError::CharError { res, chars }) => {
                 assert_eq!(chars, vec!['R', 'e', 'c', 'o', 'r', 'd', '2']);
                 if let Some(rec) = res.records.first() {
                     assert_eq!(rec.name, b">Record1");
@@ -222,7 +222,7 @@ mod tests {
         let new_p = original_p.with_extension("fa");
         fs::rename(original_p, &new_p)?;
         match parse_fasta(new_p) {
-            Err(AStarError::CharError { res, chars }) => {
+            Err(AlignerError::CharError { res, chars }) => {
                 assert_eq!(chars, vec!['K']);
                 if let Some(rec) = res.records.first() {
                     assert_eq!(rec.name, b">Record1");
@@ -243,7 +243,7 @@ mod tests {
         let new_p = original_p.with_extension("txt");
         fs::rename(original_p, &new_p)?;
         match parse_fasta(new_p) {
-            Err(AStarError::FastaError(_)) => {}
+            Err(AlignerError::FastaError(_)) => {}
             _ => panic!("should panic on non fasta file"),
         }
         Ok(())

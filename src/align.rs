@@ -1,4 +1,4 @@
-use crate::errors::{AStarError, Result};
+use crate::errors::{AlignerError, Result};
 use crate::parse::Record;
 use crate::utils::vec_u8_to_str;
 use std::cmp::Ordering;
@@ -18,7 +18,7 @@ const SCHEME: ScoringScheme = ScoringScheme {
 //TODO clean up, better error handling, tests, optimize
 pub fn align<'a>(seq1: &Record, seq2: &Record, verbose: bool, local: bool) -> Result<'a, ()> {
     if seq1.seq.is_empty() || seq2.seq.is_empty() {
-        return Err(AStarError::AlignmentError(
+        return Err(AlignerError::AlignmentError(
             "One of the provided sequences was empty. Alignment is skipped",
         ));
     }
@@ -53,7 +53,7 @@ pub fn align<'a>(seq1: &Record, seq2: &Record, verbose: bool, local: bool) -> Re
             expand_queue(&mut queue, s, seq1, seq2, target_length)?;
         }
     }
-    Err(AStarError::AlignmentError("Alignment did not converge"))
+    Err(AlignerError::AlignmentError("Alignment did not converge"))
 }
 
 fn expand_queue_semi_global<'a>(

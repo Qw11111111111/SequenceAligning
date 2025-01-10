@@ -4,7 +4,7 @@ use std::{
     time::Instant,
 };
 
-use crate::errors::{AStarError, Result};
+use crate::errors::{AlignerError, Result};
 use crate::parse::{Args, Record};
 use crate::utils::vec_u8_to_str;
 

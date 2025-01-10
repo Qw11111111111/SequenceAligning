@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 
-use crate::errors::{AStarError, Result};
+use crate::errors::{AlignerError, Result};
 use crate::parse::{Args, Mode, Record};
 use crate::utils::vec_u8_to_str;
 
@@ -430,8 +430,8 @@ pub fn n_w_align<'a>(seq1: &Record, seq2: &Record, _verbose: bool, mode: Mode) -
             mat.traceback(&seq1.seq, &seq2.seq);
             println!("{:#?}", now.elapsed());
         }
-        Mode::SemiGlobal => return Err(AStarError::AlignmentError("not implemented")),
-        Mode::Local => return Err(AStarError::AlignmentError("not implemented")),
+        Mode::SemiGlobal => return Err(AlignerError::AlignmentError("not implemented")),
+        Mode::Local => return Err(AlignerError::AlignmentError("not implemented")),
     }
     Ok(())
 }

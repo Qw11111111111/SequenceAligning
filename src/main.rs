@@ -9,7 +9,7 @@ mod wfa;
 
 use align::align;
 use clap::Parser;
-use errors::{AStarError, Result};
+use errors::{AlignerError, Result};
 use needleman_wunsch_affine::n_w_align;
 //use needleman_wunsch::n_w_align;
 use parse::{parse_fasta, Algo, Args, Mode, Records};
@@ -21,12 +21,12 @@ fn main() {
 
     let db = match parse_fasta(args.db_file) {
         Ok(rec) => rec,
-        Err(AStarError::FastaError(e)) => {
+        Err(AlignerError::FastaError(e)) => {
             eprintln!("DB fasta could not be opened: {}", e);
             eprintln!("aborting");
             return;
         }
-        Err(AStarError::CharError { chars, res }) => {
+        Err(AlignerError::CharError { chars, res }) => {
             eprintln!(
                 "Invalid character '{:#?}' detected in db fasta; continuing by ignoring it",
                 chars
@@ -41,12 +41,12 @@ fn main() {
 
     let query = match parse_fasta(args.query_file) {
         Ok(q) => q,
-        Err(AStarError::FastaError(e)) => {
+        Err(AlignerError::FastaError(e)) => {
             eprintln!("Query fasta could not be opened: {}", e);
             eprintln!("aborting");
             return;
         }
-        Err(AStarError::CharError { chars, res }) => {
+        Err(AlignerError::CharError { chars, res }) => {
             eprintln!(
                 "Invalid character '{:#?}' detected in query fasta; continuing by ignoring it",
                 chars
@@ -65,7 +65,7 @@ fn main() {
                 Algo::NeedlemanWunsch => n_w_align(q, d, args.verbose, args.mode.clone()),
                 Algo::Wfa => wfa_align(q, d, args.mode.clone()),
             } {
-                Err(AStarError::AlignmentError(e)) => {
+                Err(AlignerError::AlignmentError(e)) => {
                     eprintln!(
                         "An error occured during alignment of {} and {}\n{e}",
                         q.name.iter().map(|i| *i as char).collect::<String>(),
