@@ -9,10 +9,10 @@ mod wfa;
 
 use align::align;
 use clap::Parser;
-use errors::{AlignerError, Result};
+use errors::AlignerError;
 use needleman_wunsch_affine::n_w_align;
 //use needleman_wunsch::n_w_align;
-use parse::{parse_fasta, Algo, Args, Mode, Records};
+use parse::{parse_fasta, Algo, Args};
 use wfa::wfa_align;
 
 //TODO handle errors appropriatly

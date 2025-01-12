@@ -2,8 +2,8 @@ use crate::errors::{AlignerError, Result};
 use clap::{Parser, ValueEnum};
 use std::fmt::Display;
 use std::fs::{read, write};
-use std::path::PathBuf;
-use std::{default, io};
+use std::io;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -97,7 +97,7 @@ pub fn parse_fasta<'a>(path: PathBuf) -> Result<'a, Records> {
     Ok(recs)
 }
 
-fn has_extension(path: &PathBuf, ext: &str) -> bool {
+fn has_extension(path: &Path, ext: &str) -> bool {
     match path.extension() {
         Some(extension) => extension == ext,
         None => false,
@@ -125,7 +125,7 @@ impl Iterator for Records {
 }
 
 impl Records {
-    fn write_to_fa(&self, path: PathBuf) -> Result<()> {
+    fn _write_to_fa(&self, path: PathBuf) -> Result<()> {
         write(path, format!("{}", self))?;
         Ok(())
     }

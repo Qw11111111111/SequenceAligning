@@ -12,8 +12,8 @@ const SCHEME: ScoringScheme = ScoringScheme {
     gap_opening: -8,
     gap_extension: -6,
     epsilon: 1.5,
-    lambda: 0.039,
-    k: 0.11,
+    _lambda: 0.039,
+    _k: 0.11,
 };
 //TODO clean up, better error handling, tests, optimize
 pub fn align<'a>(seq1: &Record, seq2: &Record, verbose: bool, local: bool) -> Result<'a, ()> {
@@ -189,8 +189,8 @@ struct ScoringScheme {
     gap_opening: i32,
     gap_extension: i32,
     epsilon: f64,
-    lambda: f64,
-    k: f64,
+    _lambda: f64,
+    _k: f64,
 }
 
 fn get_h(seq1: &[u8], seq2: &[u8], x: usize, y: usize, target_length: usize) -> i32 {
@@ -309,7 +309,6 @@ mod tests {
     use super::*;
     #[test]
     fn test_heuristic() {
-        return;
         let seq1 = b"AATG";
         let seq2 = b"AATGAA";
         assert!(

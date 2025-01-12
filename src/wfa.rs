@@ -19,7 +19,15 @@ pub fn wfa_align<'a>(seq1: &Record, seq2: &Record, mode: Mode) -> Result<'a, ()>
         Mode::Global => Ocean::global(),
         _ => return Err(AlignerError::AlignmentError("not implemented")),
     };
-    ocean.expand(&seq1.seq, &seq2.seq)?;
+    while !ocean.is_converged(&seq1.seq, &seq2.seq) {
+        ocean.expand(&seq1.seq, &seq2.seq)?;
+    }
+    let s = if let Ocean::Global(w) = &ocean {
+        w.len()
+    } else {
+        0
+    };
+    println!("converged with score {}: {:#?}", s, ocean);
     Ok(())
 }
 
@@ -32,9 +40,9 @@ enum State {
 }
 
 struct ScoringScheme {
-    mismatch: usize,
-    gap_opening: usize,
-    gap_extension: usize,
+    mismatch: i32,
+    gap_opening: i32,
+    gap_extension: i32,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -69,10 +77,11 @@ impl<'a> WaveFrontElement<'a> {
     fn y(&self, diag: i32) -> usize {
         (self.offset + diag.max(0)) as usize
     }
-
+    /*
     fn new() -> Option<Self> {
         Some(Self::default())
     }
+    */
 }
 
 impl<'a> Debug for WaveFrontElement<'a> {
@@ -110,7 +119,7 @@ impl<'a> WaveFront<'a> {
             elements: Vec::default(),
         }
     }
-
+    /*
     fn new(
         state: State,
         other_gap_open: Option<&WaveFront>,
@@ -119,6 +128,7 @@ impl<'a> WaveFront<'a> {
     ) -> Option<Self> {
         Some(Self::default())
     }
+    */
 
     fn get_element(&self, idx: i32) -> Option<&WaveFrontElement<'a>> {
         self.elements
@@ -132,6 +142,14 @@ impl<'a> WaveFront<'a> {
         } else {
             None
         }
+    }
+
+    fn is_converged(&self, seq1: &[u8], seq2: &[u8]) -> bool {
+        self.elements
+            .iter()
+            .enumerate()
+            .filter_map(|(i, element)| element.as_ref().map(|e| (e.x(i as i32), e.y(i as i32))))
+            .any(|(x, y)| x == seq1.len() && y == seq2.len())
     }
 }
 
@@ -294,16 +312,35 @@ impl<'a> WaveFrontTensor<'a> {
         d.elements.rotate_left(lo.abs_diff(d.lo) as usize);
         d.elements.truncate(d.hi.abs_diff(d.lo) as usize + 1);
         m.elements.truncate(m.hi.abs_diff(m.lo) as usize + 1);
-
+        /*
         println!("{:#?}", m);
         println!("{:#?}", d);
         println!("{:#?}", i);
-
+        */
         Some(Self {
             i: if i_tracker.lo_set { Some(i) } else { None },
             d: if d_tracker.lo_set { Some(d) } else { None },
             m: if m_tracker.lo_set { Some(m) } else { None },
         })
+    }
+
+    fn is_converged(&self, seq1: &[u8], seq2: &[u8]) -> bool {
+        if let Some(i) = &self.i {
+            if i.is_converged(seq1, seq2) {
+                return true;
+            }
+        }
+        if let Some(d) = &self.d {
+            if d.is_converged(seq1, seq2) {
+                return true;
+            }
+        }
+        if let Some(m) = &self.m {
+            if m.is_converged(seq1, seq2) {
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -334,7 +371,7 @@ impl<'a> Ocean<'a> {
     fn expand(&mut self, seq1: &[u8], seq2: &[u8]) -> Result<'a, ()> {
         match self {
             Ocean::Global(ref mut wfs) => {
-                let s = wfs.len();
+                let s = wfs.len() as i32;
                 wfs.push(WaveFrontTensor::new(
                     wfs.get((s - SCHEME.gap_opening - SCHEME.gap_extension) as usize) // assuming this does not go below 0. need to check. shoul not matter unless wf.len() ~ usize::MAX
                         .and_then(|r| r.as_ref()),
@@ -343,16 +380,23 @@ impl<'a> Ocean<'a> {
                     wfs.get((s - SCHEME.mismatch) as usize)
                         .and_then(|r| r.as_ref()),
                 ));
-                if let Some(ref mut wf) = wfs.get_mut(s) {
-                    if let Some(ref mut wf) = wf {
-                        wf.expand(seq1, seq2);
-                    }
+                if let Some(Some(ref mut wf)) = wfs.get_mut(s as usize) {
+                    wf.expand(seq1, seq2);
                 }
             }
             Ocean::SemiGlobal(_) => return Err(AlignerError::AlignmentError("not implemented")),
             Ocean::Local(_) => return Err(AlignerError::AlignmentError("not implemented")),
         }
         Ok(())
+    }
+
+    fn is_converged(&self, seq1: &[u8], seq2: &[u8]) -> bool {
+        if let Ocean::Global(v) = self {
+            if let Some(Some(t)) = v.last() {
+                return t.is_converged(seq1, seq2);
+            }
+        }
+        false
     }
 }
 
@@ -548,5 +592,113 @@ mod test {
             WaveFrontTensor::new(None, None, Some(&initial)),
             Some(true_res_m)
         );
+    }
+
+    #[test]
+    fn test_full() {
+        //TODO
+        let _initial_o_e = WaveFrontTensor {
+            i: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: Vec::default(),
+            }),
+            d: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: Vec::default(),
+            }),
+            m: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: Vec::default(),
+            }),
+        };
+        let _initial_e = WaveFrontTensor {
+            i: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: Vec::default(),
+            }),
+            d: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: Vec::default(),
+            }),
+            m: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: Vec::default(),
+            }),
+        };
+        let _initial_m = WaveFrontTensor {
+            i: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: Vec::default(),
+            }),
+            d: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: Vec::default(),
+            }),
+            m: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: Vec::default(),
+            }),
+        };
+
+        let _res = WaveFrontTensor {
+            i: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: Vec::default(),
+            }),
+            d: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: Vec::default(),
+            }),
+            m: Some(WaveFront {
+                hi: 0,
+                lo: 0,
+                elements: Vec::default(),
+            }),
+        };
+        /*
+        assert_eq!(
+            Some(res),
+            WaveFrontTensor::new(Some(&initial_o_e), Some(&initial_e), Some(&initial_m))
+        );
+        */
+    }
+
+    #[test]
+    fn test_iteration() {
+        //TODO
+        let mut initial = Ocean::global();
+        let query = b"AAAATTTTCCCC";
+        let db = b"AAAATCTCC";
+        assert!(initial.expand(query, db).is_ok());
+        //assert_eq!(initial, ...)
+        assert!(initial.expand(query, db).is_ok());
+        //assert_eq!(initial, ...)
+        assert!(initial.expand(query, db).is_ok());
+        //assert_eq!(initial, ...)
+        assert!(initial.expand(query, db).is_ok());
+        //assert_eq!(initial, ...)
+        assert!(initial.expand(query, db).is_ok());
+        //assert_eq!(initial, ...)
+        assert!(initial.expand(query, db).is_ok());
+        //assert_eq!(initial, ...)
+    }
+
+    #[test]
+    fn test_converge() {
+        let initial = Ocean::global();
+        let query = b"AACATCAY";
+        let db = b"ATAGTAG";
+        assert!(!initial.is_converged(query, db))
     }
 }
