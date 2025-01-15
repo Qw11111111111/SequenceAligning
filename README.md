@@ -1,7 +1,7 @@
 # Aligners
 WFA\
 A star\
-Needleman-Wunsch\
+Needleman-Wunsch
 
 ### Usage
 ```
