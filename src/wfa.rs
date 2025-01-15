@@ -148,7 +148,11 @@ impl<'a> WaveFront<'a> {
         self.elements
             .iter()
             .enumerate()
-            .filter_map(|(i, element)| element.as_ref().map(|e| (e.x(i as i32), e.y(i as i32))))
+            .filter_map(|(i, element)| {
+                element
+                    .as_ref()
+                    .map(|e| (e.x(self.lo + i as i32), e.y(self.lo + i as i32)))
+            })
             .any(|(x, y)| x == seq1.len() && y == seq2.len())
     }
 }

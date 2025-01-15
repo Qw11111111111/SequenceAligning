@@ -52,7 +52,8 @@ pub enum Mode {
 const ALLOWED_CHARS: [u8; 5] = [b'A', b'G', b'C', b'T', b'N'];
 
 pub fn parse_fasta<'a>(path: PathBuf) -> Result<'a, Records> {
-    if !(has_extension(&path, "fa") || has_extension(&path, "fasta")) {
+    if !(has_extension(&path, "fa") || has_extension(&path, "fasta") || has_extension(&path, "fna"))
+    {
         return Err(AlignerError::FastaError(io::Error::from(
             io::ErrorKind::InvalidInput,
         )));
