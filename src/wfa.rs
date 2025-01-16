@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::ops::Index;
 
 use crate::errors::{AlignerError, Result};
@@ -66,8 +67,9 @@ impl HiLoTracker {
 struct WaveFrontElement<'a> {
     offset: i32,
     // backtrace info
-    parents: Vec<&'a WaveFrontElement<'a>>,
+    parents: Vec<State>,
     state: State,
+    _marker: PhantomData<&'a u8>,
 }
 
 impl<'a> WaveFrontElement<'a> {
@@ -87,6 +89,7 @@ impl<'a> WaveFrontElement<'a> {
 impl<'a> Debug for WaveFrontElement<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "element, {:#?}, {:#?}", self.state, self.offset)?;
+        writeln!(f, "parents: {:?}", self.parents)?;
         Ok(())
     }
 }
@@ -103,6 +106,9 @@ impl<'a> WaveFront<'a> {
     fn expand(&mut self, seq1: &[u8], seq2: &[u8]) {
         for (i, element) in self.elements.iter_mut().enumerate() {
             if let Some(ref mut e) = element {
+                if e.y(self.lo + i as i32) == seq1.len() || e.x(self.lo + i as i32) == seq2.len() {
+                    continue;
+                }
                 while seq1[e.y(self.lo + i as i32)] == seq2[e.x(self.lo + i as i32)] {
                     e.offset += 1;
                 }
@@ -143,6 +149,13 @@ impl<'a> WaveFront<'a> {
             None
         }
     }
+    fn get_state(&self, idx: i32) -> Option<&State> {
+        if let Some(wf) = self.get_element(idx) {
+            Some(&wf.state)
+        } else {
+            None
+        }
+    }
 
     fn is_converged(&self, seq1: &[u8], seq2: &[u8]) -> bool {
         self.elements
@@ -153,7 +166,7 @@ impl<'a> WaveFront<'a> {
                     .as_ref()
                     .map(|e| (e.x(self.lo + i as i32), e.y(self.lo + i as i32)))
             })
-            .any(|(x, y)| x == seq1.len() && y == seq2.len())
+            .any(|(x, y)| x == seq2.len() - 1 && y == seq1.len() - 1)
     }
 }
 
@@ -162,6 +175,16 @@ impl<'a> Index<i32> for WaveFront<'a> {
     fn index(&self, index: i32) -> &Self::Output {
         &self.elements[(index - self.lo) as usize]
     }
+}
+
+fn get_parents<'a>(offset: i32, wfs: Vec<&'a WaveFrontElement>) -> Vec<State> {
+    let mut parents = Vec::new();
+    for wf in &wfs {
+        if wf.offset == offset {
+            parents.push(wf.state.clone());
+        }
+    }
+    parents
 }
 
 #[derive(Default, Debug, Eq, PartialEq)]
@@ -239,9 +262,22 @@ impl<'a> WaveFrontTensor<'a> {
             .copied();
             if let Some(offset) = offset {
                 d.elements.push(Some(WaveFrontElement {
+                    parents: get_parents(
+                        offset,
+                        [
+                            other_gap_open
+                                .and_then(|r| r.m.as_ref().map(|r| r.get_element(idx + 1))),
+                            other_gap_extend
+                                .and_then(|r| r.d.as_ref().map(|r| r.get_element(idx + 1))),
+                        ]
+                        .iter()
+                        .flatten()
+                        .filter_map(|i| *i)
+                        .collect(),
+                    ),
                     offset,
-                    parents: Vec::default(),
                     state: State::D,
+                    _marker: PhantomData,
                 }));
 
                 d_tracker.cur_hi = idx;
@@ -268,8 +304,21 @@ impl<'a> WaveFrontTensor<'a> {
             if let Some(offset) = offset {
                 i.elements.push(Some(WaveFrontElement {
                     offset: offset + 1,
-                    parents: Vec::default(),
+                    parents: get_parents(
+                        offset,
+                        [
+                            other_gap_open
+                                .and_then(|r| r.m.as_ref().map(|r| r.get_element(idx - 1))),
+                            other_gap_extend
+                                .and_then(|r| r.i.as_ref().map(|r| r.get_element(idx - 1))),
+                        ]
+                        .iter()
+                        .flatten()
+                        .filter_map(|i| *i)
+                        .collect(),
+                    ),
                     state: State::I,
+                    _marker: PhantomData,
                 }));
 
                 i_tracker.cur_hi = idx;
@@ -293,8 +342,29 @@ impl<'a> WaveFrontTensor<'a> {
             if let Some(offset) = offset {
                 m.elements.push(Some(WaveFrontElement {
                     offset,
-                    parents: Vec::default(),
+                    parents: get_parents(
+                        offset,
+                        [
+                            other_mismatch.and_then(|r| {
+                                r.m.as_ref().map(|r| {
+                                    r.get_element(idx).map(|f| WaveFrontElement {
+                                        offset: f.offset + 1,
+                                        parents: Vec::default(),
+                                        state: State::M,
+                                        _marker: PhantomData,
+                                    })
+                                })
+                            }),
+                            Some(i.get_element(idx).cloned()), //.as_ref(),
+                            Some(d.get_element(idx).cloned()),
+                        ]
+                        .iter()
+                        .flatten()
+                        .filter_map(|i| i.as_ref())
+                        .collect(),
+                    ),
                     state: State::M,
+                    _marker: PhantomData,
                 }));
 
                 m_tracker.cur_hi = idx;
@@ -367,6 +437,7 @@ impl<'a> Ocean<'a> {
                     offset: 0,
                     state: State::M,
                     parents: Vec::default(),
+                    _marker: PhantomData,
                 })],
             }),
         })])
@@ -435,6 +506,7 @@ mod test {
                         offset: 1,
                         parents: Vec::default(),
                         state: State::I,
+                        _marker: PhantomData
                     });
                     4
                 ],
@@ -446,6 +518,7 @@ mod test {
                     offset: 1,
                     parents: Vec::default(),
                     state: State::D,
+                    _marker: PhantomData,
                 })],
             }),
             m: Some(WaveFront {
@@ -455,7 +528,8 @@ mod test {
                     Some(WaveFrontElement {
                         offset: 1,
                         parents: Vec::default(),
-                        state: State::I
+                        state: State::I,
+                        _marker: PhantomData
                     });
                     6
                 ],
@@ -471,7 +545,8 @@ mod test {
                     Some(WaveFrontElement {
                         offset: 1,
                         parents: Vec::default(),
-                        state: State::I
+                        state: State::I,
+                        _marker: PhantomData
                     });
                     6
                 ],
@@ -487,6 +562,7 @@ mod test {
                         offset: 1,
                         parents: Vec::default(),
                         state: State::I,
+                        _marker: PhantomData
                     });
                     4
                 ],
@@ -498,6 +574,7 @@ mod test {
                     offset: 1,
                     parents: Vec::default(),
                     state: State::D,
+                    _marker: PhantomData,
                 })],
             }),
             m: None,
@@ -533,6 +610,7 @@ mod test {
                     offset: 0,
                     parents: Vec::default(),
                     state: State::M,
+                    _marker: PhantomData,
                 })],
             }),
         };
@@ -543,8 +621,9 @@ mod test {
                 lo: 1,
                 elements: vec![Some(WaveFrontElement {
                     offset: 1,
-                    parents: Vec::default(),
+                    parents: vec![State::M],
                     state: State::I,
+                    _marker: PhantomData,
                 })],
             }),
             d: Some(WaveFront {
@@ -552,8 +631,9 @@ mod test {
                 lo: -1,
                 elements: vec![Some(WaveFrontElement {
                     offset: 0,
-                    parents: Vec::default(),
+                    parents: vec![State::M],
                     state: State::D,
+                    _marker: PhantomData,
                 })],
             }),
             m: Some(WaveFront {
@@ -562,14 +642,16 @@ mod test {
                 elements: vec![
                     Some(WaveFrontElement {
                         offset: 0,
-                        parents: Vec::default(),
+                        parents: vec![State::D],
                         state: State::M,
+                        _marker: PhantomData,
                     }),
                     None,
                     Some(WaveFrontElement {
                         offset: 1,
-                        parents: Vec::default(),
+                        parents: vec![State::I],
                         state: State::M,
+                        _marker: PhantomData,
                     }),
                 ],
             }),
@@ -582,8 +664,9 @@ mod test {
                 lo: 0,
                 elements: vec![Some(WaveFrontElement {
                     offset: 1,
-                    parents: Vec::default(),
+                    parents: vec![State::M],
                     state: State::M,
+                    _marker: PhantomData,
                 })],
             }),
         };
