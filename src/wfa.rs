@@ -1,4 +1,5 @@
-use std::fmt::Debug;
+use std::char;
+use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::ops::Index;
 
@@ -20,7 +21,7 @@ pub fn wfa_align<'a>(seq1: &Record, seq2: &Record, mode: Mode) -> Result<'a, ()>
         Mode::Global => Ocean::global(),
         _ => return Err(AlignerError::AlignmentError("not implemented")),
     };
-    while !ocean.is_converged(&seq1.seq, &seq2.seq) {
+    while ocean.is_converged(&seq1.seq, &seq2.seq).is_none() {
         ocean.expand(&seq1.seq, &seq2.seq)?;
     }
     let s = if let Ocean::Global(w) = &ocean {
@@ -28,7 +29,11 @@ pub fn wfa_align<'a>(seq1: &Record, seq2: &Record, mode: Mode) -> Result<'a, ()>
     } else {
         0
     };
-    println!("converged with score {}: {:#?}", s, ocean);
+    println!("converged with score {}: ", s);
+    let t = ocean.traceback(&seq1.seq, &seq2.seq);
+    println!("{}", t[0]);
+    println!("{:#?}", t[0]);
+
     Ok(())
 }
 
@@ -157,16 +162,17 @@ impl<'a> WaveFront<'a> {
         }
     }
 
-    fn is_converged(&self, seq1: &[u8], seq2: &[u8]) -> bool {
+    fn is_converged(&self, seq1: &[u8], seq2: &[u8]) -> Option<&WaveFrontElement> {
         self.elements
             .iter()
             .enumerate()
             .filter_map(|(i, element)| {
                 element
                     .as_ref()
-                    .map(|e| (e.x(self.lo + i as i32), e.y(self.lo + i as i32)))
+                    .map(|e| (e, e.x(self.lo + i as i32), e.y(self.lo + i as i32)))
             })
-            .any(|(x, y)| x == seq2.len() - 1 && y == seq1.len() - 1)
+            .find(|(_e, x, y)| *x == seq2.len() - 1 && *y == seq1.len() - 1)
+            .map(|(e, _, _)| e)
     }
 }
 
@@ -398,23 +404,23 @@ impl<'a> WaveFrontTensor<'a> {
         })
     }
 
-    fn is_converged(&self, seq1: &[u8], seq2: &[u8]) -> bool {
+    fn is_converged(&self, seq1: &[u8], seq2: &[u8]) -> Option<&WaveFrontElement> {
         if let Some(i) = &self.i {
-            if i.is_converged(seq1, seq2) {
-                return true;
+            if let Some(i) = i.is_converged(seq1, seq2) {
+                return Some(i);
             }
         }
         if let Some(d) = &self.d {
-            if d.is_converged(seq1, seq2) {
-                return true;
+            if let Some(d) = d.is_converged(seq1, seq2) {
+                return Some(d);
             }
         }
         if let Some(m) = &self.m {
-            if m.is_converged(seq1, seq2) {
-                return true;
+            if let Some(m) = m.is_converged(seq1, seq2) {
+                return Some(m);
             }
         }
-        false
+        None
     }
 }
 
@@ -465,13 +471,268 @@ impl<'a> Ocean<'a> {
         Ok(())
     }
 
-    fn is_converged(&self, seq1: &[u8], seq2: &[u8]) -> bool {
+    fn is_converged(&self, seq1: &[u8], seq2: &[u8]) -> Option<&WaveFrontElement> {
         if let Ocean::Global(v) = self {
             if let Some(Some(t)) = v.last() {
                 return t.is_converged(seq1, seq2);
             }
         }
-        false
+        None
+    }
+
+    fn traceback(&self, seq1: &[u8], seq2: &[u8]) -> Vec<Alignment> {
+        let mut diag = seq1.len() as i32 - seq2.len() as i32;
+        let mut states: Vec<Alignment> = vec![Alignment {
+            seq1: Vec::new(),
+            seq2: Vec::new(),
+        }];
+        let mut last = if let Some(last) = self.is_converged(seq1, seq2) {
+            last
+        } else {
+            return Vec::default();
+        };
+        let l = if let Ocean::Global(l) = self {
+            l.len()
+        } else {
+            0
+        };
+        println!("huhu");
+        self.rec_tr(diag, seq1, seq2, states, last.clone(), l)
+    }
+
+    fn rec_tr(
+        &self,
+        diag: i32,
+        seq1: &[u8],
+        seq2: &[u8],
+        mut current: Vec<Alignment>,
+        next_e: WaveFrontElement,
+        current_score: usize,
+    ) -> Vec<Alignment> {
+        if diag == 0 && next_e.offset == 0 {
+            return current;
+        }
+
+        for next_score_d in [
+            SCHEME.mismatch as usize,
+            SCHEME.gap_extension as usize,
+            (SCHEME.gap_opening + SCHEME.gap_extension) as usize,
+        ] {
+            if next_score_d > current_score {
+                continue;
+            }
+            let next_score = current_score - next_score_d;
+            match self {
+                Self::Global(wf_tensors) => {
+                    if let Some(tensor) = wf_tensors.get(next_score) {
+                        // potential parents of next_e in tensor. need to find parent point. return only one alignment for now.
+                        // TODO: find all alignmwnts, instead of returning after first one.
+                        let m = SCHEME.mismatch as usize;
+                        let e = SCHEME.gap_extension as usize;
+                        if next_score_d == m {
+                            if next_e.state != State::M && next_e.parents.contains(&State::M) {
+                                if let Some(wf) = tensor
+                                    .as_ref()
+                                    .and_then(|t| t.m.as_ref().and_then(|m| m.get_element(diag)))
+                                {
+                                    current[0]
+                                        .seq1
+                                        .extend(seq1[wf.y(diag)..next_e.y(diag)].iter().rev());
+                                    current[0]
+                                        .seq2
+                                        .extend(seq2[wf.x(diag)..next_e.x(diag)].iter().rev());
+                                    return self.rec_tr(
+                                        diag,
+                                        seq1,
+                                        seq2,
+                                        current,
+                                        wf.clone(),
+                                        next_score,
+                                    );
+                                }
+                            }
+                        } else if next_score_d == e {
+                            if next_e.parents.contains(&State::D) {
+                                if let Some(wf) = tensor.as_ref().and_then(|t| {
+                                    t.d.as_ref().and_then(|d| d.get_element(diag - 1))
+                                }) {
+                                    current[0]
+                                        .seq1
+                                        .extend(seq1[wf.y(diag)..next_e.y(diag)].iter().rev());
+                                    current[0].seq2.push(b'-');
+                                    current[0]
+                                        .seq2
+                                        .extend(seq2[wf.x(diag)..next_e.x(diag)].iter().rev());
+                                    return self.rec_tr(
+                                        diag - 1,
+                                        seq1,
+                                        seq2,
+                                        current,
+                                        wf.clone(),
+                                        next_score,
+                                    );
+                                }
+                            }
+                            if let Some(wf) = tensor
+                                .as_ref()
+                                .and_then(|t| t.i.as_ref().and_then(|d| d.get_element(diag + 1)))
+                            {
+                                current[0].seq1.push(b'-');
+                                current[0]
+                                    .seq1
+                                    .extend(seq1[wf.y(diag)..next_e.y(diag)].iter().rev());
+
+                                current[0]
+                                    .seq2
+                                    .extend(seq2[wf.x(diag)..next_e.x(diag)].iter().rev());
+                                return self.rec_tr(
+                                    diag + 1,
+                                    seq1,
+                                    seq2,
+                                    current,
+                                    wf.clone(),
+                                    next_score,
+                                );
+                            }
+                        } else {
+                            if !next_e.parents.contains(&State::M) {
+                                continue;
+                            }
+                            match next_e.state {
+                                State::D => {
+                                    if let Some(wf) = tensor.as_ref().and_then(|t| {
+                                        t.d.as_ref().and_then(|d| d.get_element(diag - 1))
+                                    }) {
+                                        current[0]
+                                            .seq1
+                                            .extend(seq1[wf.y(diag)..next_e.y(diag)].iter().rev());
+
+                                        current[0].seq2.push(b'-');
+                                        current[0]
+                                            .seq2
+                                            .extend(seq2[wf.x(diag)..next_e.x(diag)].iter().rev());
+                                        return self.rec_tr(
+                                            diag - 1,
+                                            seq1,
+                                            seq2,
+                                            current,
+                                            wf.clone(),
+                                            next_score,
+                                        );
+                                    }
+                                }
+                                State::I => {
+                                    if let Some(wf) = tensor.as_ref().and_then(|t| {
+                                        t.i.as_ref().and_then(|d| d.get_element(diag + 1))
+                                    }) {
+                                        current[0].seq1.push(b'-');
+                                        current[0]
+                                            .seq1
+                                            .extend(seq1[wf.y(diag)..next_e.y(diag)].iter().rev());
+
+                                        current[0]
+                                            .seq2
+                                            .extend(seq2[wf.x(diag)..next_e.x(diag)].iter().rev());
+                                        return self.rec_tr(
+                                            diag + 1,
+                                            seq1,
+                                            seq2,
+                                            current,
+                                            wf.clone(),
+                                            next_score,
+                                        );
+                                    }
+                                }
+                                State::M => {
+                                    if let Some(wf) = tensor.as_ref().and_then(|t| {
+                                        t.i.as_ref().and_then(|d| d.get_element(diag + 1))
+                                    }) {
+                                        current[0].seq1.push(b'-');
+                                        current[0]
+                                            .seq1
+                                            .extend(seq1[wf.y(diag)..next_e.y(diag)].iter().rev());
+
+                                        current[0]
+                                            .seq2
+                                            .extend(seq2[wf.x(diag)..next_e.x(diag)].iter().rev());
+                                        return self.rec_tr(
+                                            diag + 1,
+                                            seq1,
+                                            seq2,
+                                            current,
+                                            wf.clone(),
+                                            next_score,
+                                        );
+                                    }
+                                    if let Some(wf) = tensor.as_ref().and_then(|t| {
+                                        t.d.as_ref().and_then(|d| d.get_element(diag - 1))
+                                    }) {
+                                        current[0]
+                                            .seq1
+                                            .extend(seq1[wf.y(diag)..next_e.y(diag)].iter().rev());
+
+                                        current[0].seq1.push(b'-');
+                                        current[0]
+                                            .seq2
+                                            .extend(seq2[wf.x(diag)..next_e.x(diag)].iter().rev());
+                                        return self.rec_tr(
+                                            diag - 1,
+                                            seq1,
+                                            seq2,
+                                            current,
+                                            wf.clone(),
+                                            next_score,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Self::Local(_) => {}
+                Self::SemiGlobal(_) => {}
+            }
+        }
+
+        current
+    }
+}
+
+#[derive(Debug)]
+struct Alignment {
+    seq1: Vec<u8>,
+    seq2: Vec<u8>,
+}
+
+impl Display for Alignment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "{}",
+            self.seq1
+                .iter()
+                .rev()
+                .map(|item| char::from_u32(*item as u32).unwrap())
+                .collect::<String>()
+        )?;
+        for (s1, s2) in self.seq1.iter().zip(self.seq2.iter()).rev() {
+            if s1 != s2 {
+                write!(f, " ")?;
+            } else {
+                write!(f, "|")?;
+            }
+        }
+
+        writeln!(
+            f,
+            "{}",
+            self.seq2
+                .iter()
+                .rev()
+                .map(|item| char::from_u32(*item as u32).unwrap())
+                .collect::<String>()
+        )?;
+        Ok(())
     }
 }
 
@@ -786,6 +1047,6 @@ mod test {
         let initial = Ocean::global();
         let query = b"AACATCAY";
         let db = b"ATAGTAG";
-        assert!(!initial.is_converged(query, db))
+        assert!(initial.is_converged(query, db).is_none())
     }
 }
