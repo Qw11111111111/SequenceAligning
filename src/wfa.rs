@@ -7,8 +7,12 @@ use crate::errors::{AlignerError, Result};
 use crate::parse::{Mode, Record};
 
 //TODO: rewrite to use less options (optimally). alternatively use Vec<Option<WaveFrontElement>>> in current implementation
+//TODO: rewrite this entire shitfest
 
 type WaveFrontVec<'a> = Vec<Option<WaveFrontTensor<'a>>>;
+
+const MINLENGTH: u32 = 5;
+const MAXDIFF: u32 = 20;
 
 const SCHEME: ScoringScheme = ScoringScheme {
     mismatch: 4,
@@ -89,17 +93,29 @@ impl<'a> WaveFrontElement<'a> {
         Some(Self::default())
     }
     */
+    fn get_distance(&self, seq1: &[u8], seq2: &[u8], diag: i32) -> i32 {
+        //TODO: check if seqs are ordered correctly
+        let left_v = seq1.len() as i32 - self.offset - diag;
+        let left_h = seq2.len() as i32 - self.offset;
+        left_v.max(left_h)
+    }
 }
 
 impl<'a> Debug for WaveFrontElement<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "element, {:#?}, {:#?}", self.state, self.offset)?;
-        writeln!(f, "parents: {:?}", self.parents)?;
+        writeln!(f, "Element {{")?;
+        writeln!(
+            f,
+            "\tstate: {:#?}\n\toffset: {:#?}",
+            self.state, self.offset
+        )?;
+        writeln!(f, "\tparents: {:#?}", self.parents)?;
+        writeln!(f, "}}")?;
         Ok(())
     }
 }
 
-#[derive(Default, Debug, PartialEq, Eq)]
+#[derive(Default, Debug, PartialEq, Eq, Clone)]
 struct WaveFront<'a> {
     // are hi and lo inclusive?? yes
     hi: i32,
@@ -111,10 +127,9 @@ impl<'a> WaveFront<'a> {
     fn expand(&mut self, seq1: &[u8], seq2: &[u8]) {
         for (i, element) in self.elements.iter_mut().enumerate() {
             if let Some(ref mut e) = element {
-                if e.y(self.lo + i as i32) == seq1.len() || e.x(self.lo + i as i32) == seq2.len() {
-                    continue;
-                }
-                while seq1[e.y(self.lo + i as i32)] == seq2[e.x(self.lo + i as i32)] {
+                while (e.y(self.lo + i as i32) < seq1.len() && e.x(self.lo + i as i32) < seq2.len())
+                    && (seq1[e.y(self.lo + i as i32)] == seq2[e.x(self.lo + i as i32)])
+                {
                     e.offset += 1;
                 }
             } else {
@@ -193,7 +208,7 @@ fn get_parents<'a>(offset: i32, wfs: Vec<&'a WaveFrontElement>) -> Vec<State> {
     parents
 }
 
-#[derive(Default, Debug, Eq, PartialEq)]
+#[derive(Default, Debug, Eq, PartialEq, Clone)]
 struct WaveFrontTensor<'a> {
     i: Option<WaveFront<'a>>,
     d: Option<WaveFront<'a>>,
@@ -464,11 +479,147 @@ impl<'a> Ocean<'a> {
                 if let Some(Some(ref mut wf)) = wfs.get_mut(s as usize) {
                     wf.expand(seq1, seq2);
                 }
+                self.trim(seq1, seq2);
             }
             Ocean::SemiGlobal(_) => return Err(AlignerError::AlignmentError("not implemented")),
             Ocean::Local(_) => return Err(AlignerError::AlignmentError("not implemented")),
         }
         Ok(())
+    }
+
+    fn trim(&mut self, seq1: &[u8], seq2: &[u8]) {
+        //TODO fix: what happens if m.hi > i/d.hi, but m.lo > i.hi/d.hi (currently crash)
+        let wfs = if let Self::Global(ref mut wfs) = self {
+            wfs
+        } else {
+            return;
+        };
+        let current = if let Some(Some(wf)) = wfs.last_mut() {
+            wf
+        } else {
+            return;
+        };
+        let m = if let Some(ref mut m) = current.m {
+            m
+        } else {
+            return;
+        };
+        if m.lo.abs_diff(m.hi) <= MINLENGTH {
+            return;
+        }
+
+        let mut min_d = 0;
+        for diag in m.lo..=m.hi {
+            if let Some(offset) = m.get_element(diag) {
+                let dist = offset.get_distance(seq1, seq2, diag);
+                min_d = min_d.min(dist);
+            }
+        }
+        let mut next_d = m
+            .elements
+            .first()
+            .expect("first element is ensured to be Some")
+            .as_ref()
+            .unwrap()
+            .get_distance(seq1, seq2, m.lo);
+        while m.lo < m.hi && next_d.abs_diff(min_d) > MAXDIFF {
+            //println!("wtf {:#?}", m);
+            m.lo += 1;
+            m.elements.remove(0);
+            while m.get_element(m.lo).is_none() {
+                if m.lo == m.hi {
+                    break;
+                }
+                //println!("wtf2 {:#?}", m);
+                m.lo += 1;
+                m.elements.remove(0);
+            }
+            next_d = m
+                .elements
+                .first()
+                .expect("first element is ensured to be Some")
+                .as_ref()
+                .unwrap()
+                .get_distance(seq1, seq2, m.lo);
+        }
+        let mut next_d = m
+            .elements
+            .last()
+            .expect("first element is ensured to be Some")
+            .as_ref()
+            .unwrap()
+            .get_distance(seq1, seq2, m.hi);
+        while m.hi > m.lo && next_d.abs_diff(min_d) > MAXDIFF {
+            m.hi -= 1;
+            m.elements.pop();
+            while m.get_element(m.hi).is_none() {
+                if m.lo == m.hi {
+                    break;
+                }
+                m.hi -= 1;
+                m.elements.pop();
+            }
+            next_d = m
+                .elements
+                .last()
+                .expect("first element is ensured to be Some")
+                .as_ref()
+                .unwrap()
+                .get_distance(seq1, seq2, m.hi);
+        }
+        // println!("dhucwoierfgiyu4rewgcfyuoervtgv");
+
+        // println!("{:#?}", current.i);
+        // println!("{:#?}", current.d);
+        if let Some(ref mut i) = current.i {
+            // println!("{:#?}", i.elements);
+            let t = if i.lo < m.lo {
+                i.elements.rotate_left(i.lo.abs_diff(m.lo) as usize);
+                i.lo.abs_diff(m.lo) as usize
+                    + if i.hi > m.hi {
+                        i.hi.abs_diff(m.hi) as usize
+                    } else {
+                        0
+                    }
+            } else if i.hi > m.hi {
+                i.hi.abs_diff(m.hi) as usize
+            } else {
+                0
+            };
+            // println!("{}, {}, {}, {}", i.lo, i.hi, m.lo, m.hi);
+            // println!("{}", t);
+            // println!("{:#?}", i.elements);
+            // println!("{}", i.elements.len() - t);
+            i.elements.truncate(i.elements.len() - t);
+            // println!("huhu");
+            i.hi = i.hi.min(m.hi);
+            i.lo = i.lo.max(m.lo);
+        }
+        if let Some(ref mut d) = current.d {
+            let t = if d.lo < m.lo {
+                // println!("heufhiwhufiwhfw");
+                // println!("d: {:#?}", d);
+                // println!("{}, {}", m.lo, m.hi);
+                d.elements.rotate_left(d.lo.abs_diff(m.lo) as usize);
+                // println!("well yes i am dumb");
+                d.lo.abs_diff(m.lo) as usize
+                    + if d.hi > m.hi {
+                        d.hi.abs_diff(m.hi) as usize
+                    } else {
+                        0
+                    }
+            } else if d.hi > m.hi {
+                d.hi.abs_diff(m.hi) as usize
+            } else {
+                0
+            };
+            // println!("{}, {}, {}, {}", d.lo, d.hi, m.lo, m.hi);
+            // println!("{}", t);
+            // println!("{:#?}", d.elements);
+            d.elements.truncate(d.elements.len() - t);
+            d.hi = d.hi.min(m.hi);
+            d.lo = d.lo.max(m.lo);
+        }
     }
 
     fn is_converged(&self, seq1: &[u8], seq2: &[u8]) -> Option<&WaveFrontElement> {
@@ -496,7 +647,7 @@ impl<'a> Ocean<'a> {
         } else {
             0
         };
-        println!("huhu");
+        println!("huhu, diag: {}\n{:#?}\nscore: {}", diag, last, l);
         self.rec_tr(diag, seq1, seq2, states, last.clone(), l)
     }
 
@@ -510,6 +661,7 @@ impl<'a> Ocean<'a> {
         current_score: usize,
     ) -> Vec<Alignment> {
         if diag == 0 && next_e.offset == 0 {
+            println!("ret");
             return current;
         }
 
@@ -519,9 +671,11 @@ impl<'a> Ocean<'a> {
             (SCHEME.gap_opening + SCHEME.gap_extension) as usize,
         ] {
             if next_score_d > current_score {
+                println!("well shit");
                 continue;
             }
             let next_score = current_score - next_score_d;
+            println!("yeah, score: {}", next_score);
             match self {
                 Self::Global(wf_tensors) => {
                     if let Some(tensor) = wf_tensors.get(next_score) {
@@ -535,6 +689,7 @@ impl<'a> Ocean<'a> {
                                     .as_ref()
                                     .and_then(|t| t.m.as_ref().and_then(|m| m.get_element(diag)))
                                 {
+                                    println!("mismatch");
                                     current[0]
                                         .seq1
                                         .extend(seq1[wf.y(diag)..next_e.y(diag)].iter().rev());
@@ -553,6 +708,7 @@ impl<'a> Ocean<'a> {
                             }
                         } else if next_score_d == e {
                             if next_e.parents.contains(&State::D) {
+                                println!("extend");
                                 if let Some(wf) = tensor.as_ref().and_then(|t| {
                                     t.d.as_ref().and_then(|d| d.get_element(diag - 1))
                                 }) {
@@ -577,6 +733,7 @@ impl<'a> Ocean<'a> {
                                 .as_ref()
                                 .and_then(|t| t.i.as_ref().and_then(|d| d.get_element(diag + 1)))
                             {
+                                println!("extend");
                                 current[0].seq1.push(b'-');
                                 current[0]
                                     .seq1
@@ -594,10 +751,8 @@ impl<'a> Ocean<'a> {
                                     next_score,
                                 );
                             }
-                        } else {
-                            if !next_e.parents.contains(&State::M) {
-                                continue;
-                            }
+                        } else if next_e.parents.contains(&State::M) {
+                            println!("open");
                             match next_e.state {
                                 State::D => {
                                     if let Some(wf) = tensor.as_ref().and_then(|t| {
@@ -693,8 +848,96 @@ impl<'a> Ocean<'a> {
                 Self::SemiGlobal(_) => {}
             }
         }
-
+        println!("huh");
         current
+    }
+
+    fn rec_tr_2(
+        &self,
+        seq1: &[u8],
+        seq2: &[u8],
+        current_diag: i32,
+        current_score: usize,
+        mut current_element: WaveFrontElement,
+        alignments: Vec<Alignment>,
+    ) -> Vec<Alignment> {
+        if current_diag == 0 && current_element.offset == 0 {
+            return alignments;
+        }
+        match current_element.state {
+            State::M => {
+                for parent in current_element.parents {
+                    match parent {
+                        State::M => {
+                            //msimatch
+                            // diag = diag, offset = offset -1
+                            if current_score < SCHEME.mismatch as usize {
+                                return Vec::new();
+                            }
+                            let wfs = if let Self::Global(wfs) = &self {
+                                wfs
+                            } else {
+                                return Vec::new();
+                            };
+                            if let Some(prev_element) = wfs
+                                .get(current_score - SCHEME.mismatch as usize)
+                                .and_then(|wf| {
+                                    wf.as_ref().and_then(|wf| {
+                                        wf.m.as_ref().and_then(|m| m.get_element(current_diag))
+                                    })
+                                })
+                            {
+                                let d_offset = prev_element.offset.abs_diff(current_element.offset);
+                                // generate all possible alignemnts
+                            }
+                        }
+                        State::D => {
+                            // could be any, delegates to D, I
+                        }
+                        State::I => {
+                            // could be any, delegates to D, I
+                        }
+                    }
+                }
+            }
+            State::D => {
+                for parent in current_element.parents {
+                    match parent {
+                        State::M => {
+                            // gap open
+                            // diag = diag - 1, offset = offset
+                            let prev_diag = current_diag - 1;
+                        }
+                        State::D => {
+                            // gap extend
+                            // diag = diag - 1, offset = offset
+                            let prev_diag = current_diag - 1;
+                        }
+                        State::I => {
+                            // impossible
+                        }
+                    }
+                }
+            }
+            State::I => {
+                for parent in current_element.parents {
+                    match parent {
+                        State::M => {
+                            // gap open
+                            // diag = diag + 1, offset = offset - 1
+                        }
+                        State::D => {
+                            // impossible
+                        }
+                        State::I => {
+                            // gap extend
+                            // diag = diag + 1, offset = offset - 1
+                        }
+                    }
+                }
+            }
+        }
+        alignments
     }
 }
 
